@@ -59,6 +59,8 @@ usage() {
 		      --name <title>             the session's title
 		      --allow-unsandboxed        as for start
 		  list            every repo with a server or a running session
+		  restart [dir]   restart the server (ends its open sessions), print its URL
+		  restart-all     restart every running server (ends their open sessions)
 		  stop [dir]      stop the server; it comes back at the next boot
 		  disable [dir]   stop it and keep it off; trust and settings stay
 		  remove [dir]    disable, forget its settings and output, clear its trust,
@@ -66,6 +68,11 @@ usage() {
 		      --worktrees   also delete the server's worktrees that have no
 		                    uncommitted or unpushed work
 		      --force       with --worktrees, delete those with work as well
+
+		  teardown        stop and disable every server, session and the update
+		                  watcher, and unlink the units: run before uninstalling
+
+		rrc on-update is run by rrc-update.service when claude is updated.
 
 		dir defaults to the current directory; any directory inside the repo will do.
 		Give people the URL rrc prints, never the environment's name.
@@ -123,7 +130,7 @@ sanitisePrefix() { printf '%s' "$1" | sed 's#[^A-Za-z0-9._/-]#-#g'; }
 # so an upgrade of the skill is picked up by the next daemon-reload.
 ensureUnits() {
 	local t src dst
-	for t in rrc-server@.service rrc-session@.service; do
+	for t in rrc-server@.service rrc-session@.service rrc-update.path rrc-update.service; do
 		src=$SKILL/systemd/$t dst=$UNIT_DIR/$t
 		[ -f "$src" ] || die "the repo-remote-control skill is not installed: no $src"
 		if [ "$(readlink "$dst" 2>/dev/null)" != "$src" ]; then
@@ -132,6 +139,8 @@ ensureUnits() {
 		fi
 	done
 	systemctl --user daemon-reload
+	systemctl --user is-enabled --quiet rrc-update.path 2>/dev/null \
+		|| systemctl --user enable --now --quiet rrc-update.path
 }
 
 # one rrc at a time changes state or ~/.claude.json
@@ -207,6 +216,16 @@ urlIn() { plain "$1" | grep -o 'https://claude\.ai/code?environment=env_[A-Za-z0
 sessionUrlIn() { plain "$1" | grep -o 'https://claude\.ai/code/session_[A-Za-z0-9_-]*' | tail -1 || true; }
 sessionsIn() { plain "$1" | grep -o 'Capacity: [0-9]*/[0-9]*' | tail -1 | sed 's/^Capacity: //' || true; }
 lastErrorIn() { plain "$1" | grep -E '^[[:space:]]*Error:' | tail -1 | sed -E 's/^[[:space:]]+//' || true; }
+
+# the claude binary a running unit was started from
+runningExe() {
+	local pid exe
+	pid=$(systemctl --user show -p MainPID --value "$1" 2>/dev/null || true)
+	[ -n "$pid" ] && [ "$pid" != 0 ] || return 0
+	exe=$(readlink "/proc/$pid/exe" 2>/dev/null || true)
+	printf '%s' "${exe% (deleted)}"
+}
+currentClaude() { readlink -f "$HOME/.local/bin/claude" 2>/dev/null || true; }
 
 # empty the output, then start: see the header for why rrc empties it itself
 startFresh() { # unit log
@@ -413,7 +432,7 @@ cmdSession() {
 }
 
 cmdList() {
-	local files current env inst unit log root state enabled sessions url pid exe err
+	local files current env inst unit log root state enabled sessions url exe err
 	shopt -s nullglob
 	files=("$STATE"/repos/*.env)
 	local running=() s
@@ -430,7 +449,7 @@ cmdList() {
 		url=$(sessionUrlIn "$(sessionLogOf "$inst")")
 		[ -n "$url" ] && printf '  %s\n' "$url"
 	done
-	current=$(readlink -f "$HOME/.local/bin/claude" 2>/dev/null || true)
+	current=$(currentClaude)
 	for env in "${files[@]}"; do
 		inst=$(basename "$env" .env); unit=$(unitOf "$inst"); log=$(logFileOf "$inst")
 		root=$(valueIn "$env" RRC_ROOT)
@@ -441,9 +460,7 @@ cmdList() {
 		printf '  %s, %s%s\n' "${state:-unknown}" "${enabled:-unknown}" "${sessions:+, sessions $sessions}"
 		[ "$state" = active ] && [ -n "$url" ] && printf '  %s\n' "$url"
 		if [ "$state" = active ] && [ -n "$current" ]; then
-			pid=$(systemctl --user show -p MainPID --value "$unit" 2>/dev/null || true)
-			exe=$(readlink "/proc/${pid:-0}/exe" 2>/dev/null || true)
-			exe=${exe% (deleted)}
+			exe=$(runningExe "$unit")
 			if [ -n "$exe" ] && [ "$exe" != "$current" ]; then
 				printf '  runs an older claude (%s; %s is installed): restarting it updates it and ends its open sessions\n' \
 					"$(basename "$exe")" "$(basename "$current")"
@@ -460,6 +477,103 @@ known() { # dir
 	root=$(repoRoot "$1"); inst=$(instanceOf "$root")
 	[ -f "$(envFileOf "$inst")" ] || die "no server for $root: start one with rrc start $root"
 	printf '%s\n%s\n' "$root" "$inst"
+}
+
+restartOne() { # root inst: restart, wait, print root and URL
+	local unit log url
+	unit=$(unitOf "$2"); log=$(logFileOf "$2")
+	startFresh "$unit" "$log"
+	url=$(waitForUrl "$unit" "$log" "$1")
+	printf '%s\n%s\n' "$1" "$url"
+}
+
+cmdRestart() {
+	local dir=${1:-.} r root inst
+	r=$(known "$dir"); root=${r%%$'\n'*}; inst=${r#*$'\n'}
+	lock
+	note "restarting $root; this ends its open sessions"
+	restartOne "$root" "$inst"
+}
+
+cmdRestartAll() {
+	local env inst any=no
+	shopt -s nullglob
+	lock
+	for env in "$STATE"/repos/*.env; do
+		inst=$(basename "$env" .env)
+		systemctl --user is-active --quiet "$(unitOf "$inst")" || continue
+		any=yes
+		note "restarting $(valueIn "$env" RRC_ROOT)"
+		restartOne "$(valueIn "$env" RRC_ROOT)" "$inst" || true
+	done
+	[ "$any" = yes ] || echo "no server is running"
+}
+
+# Run by rrc-update.service. Idle servers on an old binary restart now; ones
+# with sessions open keep running it until the user says, because restarting
+# ends those sessions. The orchestrator is told in its tmux pane, where the
+# message waits its turn if it is busy (tmux-queue check, 22 Oct).
+cmdOnUpdate() {
+	local current env inst unit log root exe cap n busy=() restarted=() pane msg
+	current=$(currentClaude)
+	[ -n "$current" ] || return 0
+	shopt -s nullglob
+	lock
+	mkdir -p "$STATE/logs"
+	for env in "$STATE"/repos/*.env; do
+		inst=$(basename "$env" .env); unit=$(unitOf "$inst"); log=$(logFileOf "$inst")
+		root=$(valueIn "$env" RRC_ROOT)
+		systemctl --user is-active --quiet "$unit" || continue
+		exe=$(runningExe "$unit")
+		[ -n "$exe" ] && [ "$exe" != "$current" ] || continue
+		cap=$(sessionsIn "$log"); n=${cap%%/*}
+		if [ "$n" = 0 ]; then
+			startFresh "$unit" "$log"
+			restarted+=("$root")
+		else
+			# no count in the output counts as busy: never end sessions on a guess
+			busy+=("$root (${n:-unknown} open)")
+		fi
+	done
+	[ "${#restarted[@]}" -gt 0 ] || [ "${#busy[@]}" -gt 0 ] || return 0
+
+	{
+		printf '%s claude is now %s\n' "$(date '+%F %T')" "$(basename "$current")"
+		for root in ${restarted[@]+"${restarted[@]}"}; do printf '  restarted (idle): %s\n' "$root"; done
+		for root in ${busy[@]+"${busy[@]}"}; do printf '  still on the old version: %s\n' "$root"; done
+	} >>"$STATE/logs/update.log"
+	[ "${#busy[@]}" -gt 0 ] || return 0
+
+	pane=$(valueIn "$STATE/config" ORCHESTRATOR_TMUX); pane=${pane:-orchestrator:0}
+	msg="[rrc] claude was updated to $(basename "$current")."
+	[ "${#restarted[@]}" -gt 0 ] && msg+=" Idle servers restarted: $(joined "${restarted[@]}")."
+	msg+=" These servers have open sessions and still run the old version: $(joined "${busy[@]}"). Restarting one ends its sessions. Ask the user now which to restart, then run rrc restart <dir> for each, or rrc restart-all for every server."
+	if tmux has-session -t "${pane%%:*}" 2>/dev/null \
+		&& tmux send-keys -t "$pane" -l "$msg" && tmux send-keys -t "$pane" Enter; then
+		printf '  told the orchestrator at %s\n' "$pane" >>"$STATE/logs/update.log"
+	else
+		printf '  could not reach the orchestrator at %s; run rrc list\n' "$pane" >>"$STATE/logs/update.log"
+	fi
+}
+joined() { local out="" x; for x in "$@"; do out+="${out:+; }$x"; done; printf '%s' "$out"; }
+
+# Undo what rrc set up in systemd. The kit's uninstall.sh cannot do this yet,
+# so run it first; the skill's state/ stays until uninstall removes it.
+cmdTeardown() {
+	local u
+	shopt -s nullglob
+	for u in "$STATE"/repos/*.env; do
+		systemctl --user disable --now --quiet "$(unitOf "$(basename "$u" .env)")" 2>/dev/null || true
+	done
+	for u in "$STATE"/sessions/*.env; do
+		systemctl --user stop "$(sessionUnitOf "$(basename "$u" .env)")" 2>/dev/null || true
+	done
+	systemctl --user disable --now --quiet rrc-update.path 2>/dev/null || true
+	for u in rrc-server@.service rrc-session@.service rrc-update.path rrc-update.service; do
+		rm -f "$UNIT_DIR/$u"
+	done
+	systemctl --user daemon-reload 2>/dev/null || true
+	echo "stopped and disabled every server, session and the update watcher, and unlinked the units"
 }
 
 cmdStop() {
@@ -539,7 +653,10 @@ case $cmd in
 	remove) cmdRemove "$@" ;;
 	clone) cmdClone "$@" ;;
 	session) cmdSession "$@" ;;
-	restart-all) die "$cmd is not built yet" ;;
+	restart) cmdRestart "$@" ;;
+	restart-all) cmdRestartAll ;;
+	on-update) cmdOnUpdate ;;
+	teardown) cmdTeardown ;;
 	-h|--help|help) usage ;;
 	"") usage >&2; exit 2 ;;
 	*) note "rrc: unknown command $cmd"; usage >&2; exit 2 ;;
