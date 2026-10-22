@@ -59,11 +59,14 @@ for a in "$@"; do
 done
 mkdir -p "$STUB/units"; s="$STUB/units/$unit"
 play() {
-  local inst=${unit#rrc-server@} n f
-  inst=${inst%.service}
+  local inst n f log
+  case $unit in
+    rrc-session@*) inst=${unit#rrc-session@}; log="${inst%.service}.session.log" ;;
+    *) inst=${unit#rrc-server@}; log="${inst%.service}.log" ;;
+  esac
   n=$(( $(cat "$s.starts" 2>/dev/null || echo 0) + 1 )); echo "$n" >"$s.starts"
   f="$STUB/output.$n"; [ -f "$f" ] || f="$STUB/output"
-  if [ -f "$f" ]; then cat "$f" >"$RRC_STATE/logs/$inst.log"; fi
+  if [ -f "$f" ]; then cat "$f" >"$RRC_STATE/logs/$log"; fi
   if [ -n "${STUB_FAIL:-}" ]; then echo failed >"$s.state"; else echo active >"$s.state"; fi
 }
 show() { [ "$quiet" = 1 ] || echo "$1"; }
@@ -259,8 +262,86 @@ out=$("$RRC" remove "$WEB" --worktrees --force 2>&1); rc=$?
 
 out=$("$RRC" frobnicate 2>&1); rc=$?
 [ "$rc" = 2 ] && grep -q 'usage: rrc' <<<"$out" && ok "an unknown command prints usage" || no "an unknown command prints usage" "rc=$rc"
-out=$("$RRC" clone x 2>&1); rc=$?
+out=$("$RRC" restart-all 2>&1); rc=$?
 [ "$rc" != 0 ] && grep -q 'not built yet' <<<"$out" && ok "commands still to come say so" || no "commands still to come say so" "rc=$rc $out"
+
+echo "rrc clone and session"
+REMOTES="$TMP/remotes"; mkdir -p "$REMOTES"
+seedRemote() { # name: a bare repo with one commit, as a host would hold it
+  local w="$TMP/seed-$1"; git init -q "$w"; git -C "$w" commit -q --allow-empty -m init
+  git init -q --bare "$REMOTES/$1.git"; git -C "$w" push -q "$REMOTES/$1.git" HEAD:refs/heads/main 2>/dev/null
+  git -C "$REMOTES/$1.git" symbolic-ref HEAD refs/heads/main
+}
+seedRemote shop; seedRemote web
+mkdir -p "$RRC_STATE"; printf 'CLONE_BASE="%s/"\n' "$REMOTES" >"$RRC_STATE/config"
+
+fresh; cp "$FIX/server-ready.out" "$STUB/output"
+out=$("$RRC" clone shop client_acme 2>"$TMP/err"); rc=$?
+SHOP="$HOME/repos/client_acme/shop"
+[ "$rc" = 0 ] && [ -d "$SHOP/.git" ] && [ "${out%%$'\n'*}" = "$SHOP" ] && [ "${out#*$'\n'}" = "$URL1" ] \
+  && grep -qx 'RRC_PREFIX="client_acme/shop"' "$RRC_STATE/repos/$(inst "$SHOP").env" \
+  && ok "clone of a slug: CLONE_BASE + slug + .git into ~/repos/<path>/<name>, then started, URL printed" \
+  || no "clone of a slug: CLONE_BASE + slug + .git into ~/repos/<path>/<name>, then started, URL printed" "rc=$rc $out $(cat "$TMP/err")"
+
+out=$("$RRC" clone shop client_acme 2>&1); rc=$?
+[ "$rc" != 0 ] && grep -q 'already exists' <<<"$out" \
+  && ok "clone into an existing folder is refused" || no "clone into an existing folder is refused" "rc=$rc $out"
+
+fresh; cp "$FIX/server-ready.out" "$STUB/output"
+out=$("$RRC" clone "$REMOTES/shop.git" client_other --permission-mode plan 2>"$TMP/err"); rc=$?
+OSHOP="$HOME/repos/client_other/shop"
+[ "$rc" = 0 ] && grep -q 'same folder name' "$TMP/err" && grep -q "$SHOP" "$TMP/err" \
+  && grep -qx 'RRC_PERMISSION_MODE="plan"' "$RRC_STATE/repos/$(inst "$OSHOP").env" \
+  && ok "clone of a URL with the same folder name as another repo warns, and passes start's options on" \
+  || no "clone of a URL with the same folder name as another repo warns, and passes start's options on" "rc=$rc $(cat "$TMP/err")"
+
+fresh; cp "$FIX/server-ready.out" "$STUB/output"
+out=$("$RRC" clone shop client_third --name shop-eu 2>"$TMP/err"); rc=$?
+[ "$rc" = 0 ] && [ -d "$HOME/repos/client_third/shop-eu/.git" ] \
+  && ok "clone --name picks the folder name" || no "clone --name picks the folder name" "rc=$rc $(cat "$TMP/err")"
+
+printf '{}\n' >"$CLAUDE_DIR/settings.json"; fresh
+out=$("$RRC" clone web 2>&1); rc=$?
+[ "$rc" = 3 ] && [ ! -e "$HOME/repos/web" ] \
+  && ok "clone with the sandbox off stops before cloning" || no "clone with the sandbox off stops before cloning" "rc=$rc $out"
+printf '{"sandbox":{"enabled":true}}\n' >"$CLAUDE_DIR/settings.json"
+
+SURL=https://claude.ai/code/session_01G8282bitpmbotQCQAB569H
+SES=$(repo "$HOME/repos/one-off"); SI=$(inst "$SES"); SUNIT="rrc-session@$SI.service"
+fresh; cp "$FIX/session-ready.out" "$STUB/output"
+out=$("$RRC" session "$SES" --name "fix the login page" 2>"$TMP/err"); rc=$?
+[ "$rc" = 0 ] && [ "${out#*$'\n'}" = "$SURL" ] && grep -q 'never comes back at boot' "$TMP/err" \
+  && ok "session starts one session and prints its URL" || no "session starts one session and prints its URL" "rc=$rc $out $(cat "$TMP/err")"
+grep -qx 'RRC_ARGS="--permission-mode auto --name fix-the-login-page"' "$RRC_STATE/sessions/$SI.env" \
+  && ok "session: auto mode by default, its title as one argument" || no "session: auto mode by default, its title as one argument" "$(cat "$RRC_STATE/sessions/$SI.env")"
+grep -qF -- "--user start $SUNIT" "$STUB/calls" && ! grep -qF -- "enable" "$STUB/calls" \
+  && [ "$(readlink "$HOME/.config/systemd/user/rrc-session@.service")" = "$REPO/skill/systemd/rrc-session@.service" ] \
+  && ok "session runs from the linked session template and is never enabled" \
+  || no "session runs from the linked session template and is never enabled" "$(cat "$STUB/calls")"
+
+n=$(ncalls)
+out=$("$RRC" session "$SES" 2>"$TMP/err"); rc=$?
+[ "$rc" = 0 ] && [ "${out#*$'\n'}" = "$SURL" ] && ! newcalls "$n" | grep -qF -- "--user start" && grep -q 'already running' "$TMP/err" \
+  && ok "session while one is running hands out its URL instead of starting another" \
+  || no "session while one is running hands out its URL instead of starting another" "rc=$rc $out $(newcalls "$n")"
+
+out=$("$RRC" list 2>&1)
+grep -qx "$SES" <<<"$out" && grep -qx '  one session, running' <<<"$out" && grep -qx "  $SURL" <<<"$out" \
+  && ok "list shows a running session and its URL" || no "list shows a running session and its URL" "$out"
+
+SRV=$(repo "$HOME/repos/served"); fresh; cp "$FIX/server-ready.out" "$STUB/output"
+"$RRC" start "$SRV" >/dev/null 2>&1
+n=$(ncalls)
+out=$("$RRC" session "$SRV" 2>&1); rc=$?
+[ "$rc" != 0 ] && grep -q "has a server" <<<"$out" && grep -qF "$URL1" <<<"$out" && ! newcalls "$n" | grep -qF -- "rrc-session@" \
+  && ok "session in a repo with a server is refused and hands out the server's URL" \
+  || no "session in a repo with a server is refused and hands out the server's URL" "rc=$rc $out"
+
+LATE=$(repo "$HOME/repos/late"); fresh; cp "$FIX/server-already-served.out" "$STUB/output"
+out=$(STUB_FAIL=1 "$RRC" session "$LATE" 2>&1); rc=$?
+[ "$rc" = 1 ] && grep -q 'try again in a minute' <<<"$out" \
+  && ok "a session refused as \"already served\" says to try again in a minute" \
+  || no "a session refused as \"already served\" says to try again in a minute" "rc=$rc $out"
 
 echo "hooks"
 # Real git: a repo pushed to its own origin, and the worktrees a server makes:

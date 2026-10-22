@@ -50,7 +50,15 @@ usage() {
 		      --prefix <prefix>          session-title prefix (default: path under ~/repos)
 		      --allow-unsandboxed        start even though sandbox.enabled is off;
 		                                 only with the user's explicit yes
-		  list            every repo with a server: state, URL, sessions, errors
+		  clone <url-or-slug> [path]   clone into ~/repos/[path]/<name>, then start it
+		      --name <folder>            clone into this folder name instead
+		      (and any start option)     a slug is added to CLONE_BASE
+		  session [dir]   one session in the repo, not a server: ends when the
+		                  conversation does, never comes back at boot
+		      --permission-mode <mode>   (default auto)
+		      --name <title>             the session's title
+		      --allow-unsandboxed        as for start
+		  list            every repo with a server or a running session
 		  stop [dir]      stop the server; it comes back at the next boot
 		  disable [dir]   stop it and keep it off; trust and settings stay
 		  remove [dir]    disable, forget its settings and output, clear its trust,
@@ -89,6 +97,9 @@ instanceOf() { systemd-escape --path "$1"; }
 unitOf() { printf 'rrc-server@%s.service' "$1"; }
 envFileOf() { printf '%s/repos/%s.env' "$STATE" "$1"; }
 logFileOf() { printf '%s/logs/%s.log' "$STATE" "$1"; }
+sessionUnitOf() { printf 'rrc-session@%s.service' "$1"; }
+sessionEnvOf() { printf '%s/sessions/%s.env' "$STATE" "$1"; }
+sessionLogOf() { printf '%s/logs/%s.session.log' "$STATE" "$1"; }
 
 # KEY=value or KEY="value" from a file rrc wrote, read without sourcing it
 valueIn() { # file key
@@ -107,16 +118,19 @@ defaultPrefix() {
 }
 sanitisePrefix() { printf '%s' "$1" | sed 's#[^A-Za-z0-9._/-]#-#g'; }
 
-# The unit template lives with the skill; systemd only reads units from
-# ~/.config/systemd/user, so it is linked there. Linked rather than copied so
-# an upgrade of the skill is picked up by the next daemon-reload.
-ensureUnit() {
-	local src=$SKILL/systemd/rrc-server@.service dst=$UNIT_DIR/rrc-server@.service
-	[ -f "$src" ] || die "the repo-remote-control skill is not installed: no $src"
-	if [ "$(readlink "$dst" 2>/dev/null)" != "$src" ]; then
-		mkdir -p "$UNIT_DIR"
-		ln -sfn "$src" "$dst"
-	fi
+# The unit templates live with the skill; systemd only reads units from
+# ~/.config/systemd/user, so they are linked there. Linked rather than copied
+# so an upgrade of the skill is picked up by the next daemon-reload.
+ensureUnits() {
+	local t src dst
+	for t in rrc-server@.service rrc-session@.service; do
+		src=$SKILL/systemd/$t dst=$UNIT_DIR/$t
+		[ -f "$src" ] || die "the repo-remote-control skill is not installed: no $src"
+		if [ "$(readlink "$dst" 2>/dev/null)" != "$src" ]; then
+			mkdir -p "$UNIT_DIR"
+			ln -sfn "$src" "$dst"
+		fi
+	done
 	systemctl --user daemon-reload
 }
 
@@ -137,6 +151,15 @@ sandboxOn() {
 		[ -s "$f" ] && jq -e '.sandbox.enabled == true' "$f" >/dev/null 2>&1 && return 0
 	done
 	return 1
+}
+
+# exit 3, before anything changes, so the calling Claude stops and asks
+needSandbox() { # what happens to the choice
+	sandboxOn && return 0
+	note "rrc: the sandbox is off: sandbox.enabled is not true in $CLAUDE_DIR/settings.json."
+	note "Sessions started this way would run commands unsandboxed. Ask the user. Only if they say yes,"
+	note "run it again with --allow-unsandboxed; $1"
+	exit 3
 }
 
 trusted() { jq -e --arg p "$1" '.projects[$p].hasTrustDialogAccepted == true' "$CLAUDE_JSON" >/dev/null 2>&1; }
@@ -181,6 +204,7 @@ plain() {
 	sed -E 's/\x1b\[[0-9;?<>=]*[ -\/]*[@-~]//g; s/\x1b\][^\x07\x1b]*(\x07|\x1b\\)//g; s/\x1b[()][A-Z0-9]//g; s/\x1b[=>78DEHMc]//g; s/\r/\n/g' "$1"
 }
 urlIn() { plain "$1" | grep -o 'https://claude\.ai/code?environment=env_[A-Za-z0-9_-]*' | tail -1 || true; }
+sessionUrlIn() { plain "$1" | grep -o 'https://claude\.ai/code/session_[A-Za-z0-9_-]*' | tail -1 || true; }
 sessionsIn() { plain "$1" | grep -o 'Capacity: [0-9]*/[0-9]*' | tail -1 | sed 's/^Capacity: //' || true; }
 lastErrorIn() { plain "$1" | grep -E '^[[:space:]]*Error:' | tail -1 | sed -E 's/^[[:space:]]+//' || true; }
 
@@ -191,11 +215,11 @@ startFresh() { # unit log
 	systemctl --user start "$1"
 }
 
-waitForUrl() { # unit log root
-	local unit=$1 log=$2 root=$3 url err end retried=0 told=0
+waitForUrl() { # unit log root [extractor]
+	local unit=$1 log=$2 root=$3 find=${4:-urlIn} url err end retried=0 told=0
 	end=$((SECONDS + WAIT))
 	while :; do
-		url=$(urlIn "$log")
+		url=$("$find" "$log")
 		[ -n "$url" ] && { printf '%s\n' "$url"; return 0; }
 		if [ "$retried" = 0 ] && plain "$log" | grep -q 'Workspace not trusted'; then
 			note "  the server says the repo is not trusted; another claude may have rewritten $CLAUDE_JSON. Setting it again and restarting."
@@ -208,6 +232,9 @@ waitForUrl() { # unit log root
 		fi
 		if systemctl --user is-failed --quiet "$unit"; then
 			err=$(lastErrorIn "$log")
+			case $err in *"already served"*)
+				err="$err (a server in this folder stopped less than about 70 seconds ago, or is still running: try again in a minute)" ;;
+			esac
 			die "$unit failed. Last error: ${err:-none}. Output: $log"
 		fi
 		if [ "$SECONDS" -ge "$end" ]; then
@@ -252,12 +279,7 @@ cmdStart() {
 	case " $MODES " in *" $mode "*) ;; *) die "start: --permission-mode must be one of: $MODES" ;; esac
 	[ -n "$prefix" ] || die "start: the prefix is empty"
 
-	if [ "$allow" != yes ] && ! sandboxOn; then
-		note "rrc: the sandbox is off: sandbox.enabled is not true in $CLAUDE_DIR/settings.json."
-		note "This server's sessions would run commands unsandboxed. Ask the user. Only if they say yes,"
-		note "run it again with --allow-unsandboxed; that choice is remembered for this repo."
-		exit 3
-	fi
+	[ "$allow" = yes ] || needSandbox "that choice is remembered for this repo."
 
 	local args="--permission-mode $mode"
 	[ "$create" = yes ] && args+=" --create-session-in-dir" || args+=" --no-create-session-in-dir"
@@ -281,7 +303,7 @@ cmdStart() {
 	fi
 
 	setTrust "$root"
-	ensureUnit
+	ensureUnits
 
 	if systemctl --user is-active --quiet "$unit"; then
 		systemctl --user enable --quiet "$unit"
@@ -299,14 +321,115 @@ cmdStart() {
 	printf '%s\n%s\n' "$root" "$url"
 }
 
+cmdClone() {
+	local src="" path="" name="" allow=no startArgs=()
+	while [ $# -gt 0 ]; do
+		case $1 in
+			--name) name=${2:-}; shift ;;
+			--name=*) name=${1#*=} ;;
+			--permission-mode|--prefix) startArgs+=("$1" "${2:-}"); shift ;;
+			--allow-unsandboxed) allow=yes; startArgs+=("$1") ;;
+			-*) startArgs+=("$1") ;;
+			*) if [ -z "$src" ]; then src=$1; elif [ -z "$path" ]; then path=$1; else die "clone: too many arguments"; fi ;;
+		esac
+		shift
+	done
+	[ -n "$src" ] || die "clone: give a URL or a repo slug"
+
+	local url base repos parent folder dest
+	case $src in
+		*://*|*@*:*|/*|./*|../*) url=$src ;;
+		*)
+			base=$(valueIn "$STATE/config" CLONE_BASE); base=${base:-git@ssh.bitbucket.org:oneiota/}
+			url=$base$src
+			case $url in *.git) ;; *) url=$url.git ;; esac ;;
+	esac
+	folder=${name:-$(basename "${url%.git}")}
+	repos=$(reposRoot)
+	case $path in "") parent=$repos ;; /*) parent=$path ;; *) parent=$repos/$path ;; esac
+	dest=$parent/$folder
+	[ -e "$dest" ] && die "$dest already exists. rrc start $dest serves it as it is."
+	# checked before cloning, so a refusal leaves nothing half done
+	[ "$allow" = yes ] || needSandbox "that choice is remembered for this repo."
+
+	# the app names an environment after the folder: two repos called web show
+	# as two environments called web
+	local other
+	other=$(find "$repos" -mindepth 1 -maxdepth 4 -type d -name "$folder" -exec test -e '{}/.git' ';' -print 2>/dev/null | head -1)
+	[ -n "$other" ] && note "note: $other has the same folder name, so the app will list both as environment \"$folder\". rrc clone --name <folder> avoids that. Hand out the URL, not the name."
+
+	mkdir -p "$parent"
+	git clone -q "$url" "$dest" || die "could not clone $url"
+	cmdStart "$dest" ${startArgs[@]+"${startArgs[@]}"}
+}
+
+cmdSession() {
+	local dir=. mode=auto name="" allow=no
+	while [ $# -gt 0 ]; do
+		case $1 in
+			--permission-mode) mode=${2:-}; shift ;;
+			--permission-mode=*) mode=${1#*=} ;;
+			--name) name=${2:-}; shift ;;
+			--name=*) name=${1#*=} ;;
+			--allow-unsandboxed) allow=yes ;;
+			-*) die "session: unknown option $1" ;;
+			*) dir=$1 ;;
+		esac
+		shift
+	done
+	case " $MODES " in *" $mode "*) ;; *) die "session: --permission-mode must be one of: $MODES" ;; esac
+	# one argument each: systemd splits RRC_ARGS on whitespace
+	name=$(printf '%s' "$name" | tr -s '[:space:]' '-' | sed 's/^-//; s/-$//')
+
+	local root inst unit env log url
+	root=$(repoRoot "$dir"); inst=$(instanceOf "$root")
+	unit=$(sessionUnitOf "$inst"); env=$(sessionEnvOf "$inst"); log=$(sessionLogOf "$inst")
+	lock
+
+	# Claude refuses a session beside a server in the same folder
+	if systemctl --user is-active --quiet "$(unitOf "$inst")"; then
+		url=$(urlIn "$(logFileOf "$inst")")
+		die "$root has a server, and Claude refuses a single session beside it. Open a new session from the server's URL instead: ${url:-run rrc list for it}"
+	fi
+	if systemctl --user is-active --quiet "$unit"; then
+		url=$(sessionUrlIn "$log")
+		[ -n "$url" ] || url=$(waitForUrl "$unit" "$log" "$root" sessionUrlIn)
+		note "a session is already running in $root; this is its URL"
+		printf '%s\n%s\n' "$root" "$url"
+		return 0
+	fi
+	[ "$allow" = yes ] || needSandbox "it applies to this one session."
+
+	local args="--permission-mode $mode"
+	[ -n "$name" ] && args+=" --name $name"
+	mkdir -p "$STATE/sessions" "$STATE/logs"
+	printf '# written by rrc session\nRRC_ROOT="%s"\nRRC_ARGS="%s"\n' "$root" "$args" >"$env.tmp" && mv "$env.tmp" "$env"
+	setTrust "$root"
+	ensureUnits
+	startFresh "$unit" "$log"
+	url=$(waitForUrl "$unit" "$log" "$root" sessionUrlIn)
+	printf '%s\n%s\n' "$root" "$url"
+	note "one session: it ends when the conversation does, and never comes back at boot"
+}
+
 cmdList() {
 	local files current env inst unit log root state enabled sessions url pid exe err
 	shopt -s nullglob
 	files=("$STATE"/repos/*.env)
-	if [ "${#files[@]}" -eq 0 ]; then
-		echo "no repo has a server; start one with: rrc start <dir>"
+	local running=() s
+	for s in "$STATE"/sessions/*.env; do
+		systemctl --user is-active --quiet "$(sessionUnitOf "$(basename "$s" .env)")" && running+=("$s")
+	done
+	if [ "${#files[@]}" -eq 0 ] && [ "${#running[@]}" -eq 0 ]; then
+		echo "no repo has a server or a running session; start one with: rrc start <dir>"
 		return 0
 	fi
+	for s in ${running[@]+"${running[@]}"}; do
+		inst=$(basename "$s" .env)
+		printf '%s\n  one session, running\n' "$(valueIn "$s" RRC_ROOT)"
+		url=$(sessionUrlIn "$(sessionLogOf "$inst")")
+		[ -n "$url" ] && printf '  %s\n' "$url"
+	done
 	current=$(readlink -f "$HOME/.local/bin/claude" 2>/dev/null || true)
 	for env in "${files[@]}"; do
 		inst=$(basename "$env" .env); unit=$(unitOf "$inst"); log=$(logFileOf "$inst")
@@ -414,7 +537,9 @@ case $cmd in
 	stop) cmdStop "$@" ;;
 	disable) cmdDisable "$@" ;;
 	remove) cmdRemove "$@" ;;
-	clone|session|restart-all) die "$cmd is not built yet" ;;
+	clone) cmdClone "$@" ;;
+	session) cmdSession "$@" ;;
+	restart-all) die "$cmd is not built yet" ;;
 	-h|--help|help) usage ;;
 	"") usage >&2; exit 2 ;;
 	*) note "rrc: unknown command $cmd"; usage >&2; exit 2 ;;
