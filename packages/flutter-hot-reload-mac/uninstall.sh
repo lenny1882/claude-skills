@@ -56,6 +56,15 @@ RESERVED=" agents auth-recipes backups bin bridge-spawn cache commands daemon
 
 printf '%s\n' "== Uninstalling $PKG"
 
+# pre_uninstall runs while the package is still installed, for anything that
+# needs its files to undo — services started from inside the skill's directory,
+# say. If it fails, nothing is removed.
+if declare -F pre_uninstall >/dev/null; then
+  step "Before removing anything"
+  if pre_uninstall; then ok "pre_uninstall"
+  else echo "pre_uninstall failed — nothing removed." >&2; exit 1; fi
+fi
+
 step "Removing files"
 for entry in ${FILES[@]+"${FILES[@]}"} ${DIRS[@]+"${DIRS[@]}"}; do
   d="${entry#*:}" keep=""
