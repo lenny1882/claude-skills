@@ -421,10 +421,28 @@ handoff reconciliation" was offline):
    item 1 (see "Sandbox").
 8. Confirm cloning over `ssh.bitbucket.org` from the box (open item 1).
 
+## Build status (22 Oct)
+
+Built and committed, with tests (`test/run-tests.sh`): `rrc` start, list,
+stop, disable, remove, clone, session, restart, restart-all, on-update and
+teardown; the server, session and update-watcher units; the `SessionStart`
+hook and the commit guard; `SKILL.md` and the README. Decided while building:
+
+- `rrc clone --name <folder>` picks the folder name, and clone warns when
+  another repo under `~/repos` has the same folder name.
+- `rrc session --name` titles are made one argument: spaces become hyphens.
+- `rrc restart <dir>` restarts one server; the `[rrc]` message from the
+  update watcher points at it and at `restart-all`.
+- `rrc teardown` undoes everything in systemd. The kit's `uninstall.sh` has no
+  hook to call it yet; `manifest.sh` defines `pre_uninstall` for when it does.
+  The request to the package-kit session was not delivered: that session had
+  ended.
+
 ## Next steps
 
-1. Build: `rrc`, the two unit templates, the `SessionStart` hook, the commit
-   guard, the update watcher and path unit, `manifest.sh`, and the tests.
-   Check during the build: whether a refused server exits with an error
-   (see "Restarting"), and whether a path unit on `~/.local/bin/claude` fires
-   when `claude` updates, since it's a symlink into a versions directory.
+1. Run `test/docker/confirm.sh refused-exit` (needs nobody in the app): does a
+   refused server exit with an error, so `Restart=on-failure` retries it?
+2. Run `test/docker/integration.sh`: the real `rrc` in the container, including
+   the update watcher firing on a real `claude` update.
+3. Ask the package-kit session for the `pre_uninstall` hook.
+4. Install: `./test/run-tests.sh && ./install.sh --link` (outside the sandbox).
