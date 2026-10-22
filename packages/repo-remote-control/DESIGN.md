@@ -442,7 +442,9 @@ hook and the commit guard; `SKILL.md` and the README. Decided while building:
 
 1. Run `test/docker/confirm.sh refused-exit` (needs nobody in the app): does a
    refused server exit with an error, so `Restart=on-failure` retries it?
-2. Run `test/docker/integration.sh`: the real `rrc` in the container, including
-   the update watcher firing on a real `claude` update.
+2. Run `test/docker/integration.sh` (written 22 Oct, not run yet): the real
+   `rrc` installed in the container, including the update watcher firing on a
+   real `claude install`. `--app` adds the parts that need you: the hooks in a
+   real server session, and the `[rrc]` message for a busy server.
 3. Ask the package-kit session for the `pre_uninstall` hook.
 4. Install: `./test/run-tests.sh && ./install.sh --link` (outside the sandbox).
