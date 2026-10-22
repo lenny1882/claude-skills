@@ -1,0 +1,21 @@
+# Watches the claude binary, so servers still running an old one get
+# restarted. A running server keeps the binary it started with until it
+# restarts, and restarting ends its open sessions, so rrc-update.service
+# restarts only idle servers and asks about the rest through the
+# orchestrator. Enabled by the first rrc start.
+#
+# ~/.local/bin/claude is a symlink into ~/.local/share/claude/versions/, and
+# an update can change either, so both are watched. rrc on-update compares
+# what each server runs with what the symlink points at, so extra triggers
+# are harmless.
+
+[Unit]
+Description=Watch the claude binary for updates (repo-remote-control)
+
+[Path]
+PathChanged=%h/.local/bin/claude
+PathChanged=%h/.local/share/claude/versions
+Unit=rrc-update.service
+
+[Install]
+WantedBy=default.target

@@ -46,6 +46,15 @@ REGISTRATIONS=(
   "PreToolUse (matcher: Bash): hooks/repo-remote-control-commit-guard.sh"
 )
 
+# Before uninstalling: every server, session and the update watcher stopped
+# and disabled, and the units unlinked, so nothing keeps running a deleted
+# skill. The kit's uninstall.sh does not call a hook like this yet (asked for
+# on 22 Oct); until it does, run rrc teardown first.
+pre_uninstall() {
+  [ -x "$HOME/.local/bin/rrc" ] && "$HOME/.local/bin/rrc" teardown
+  return 0
+}
+
 # The skill is readable, rrc on PATH runs, the unit template it links is
 # there with the lines rrc depends on (where it reads per-repo settings and
 # where it writes the output rrc reads the URL from), and the commit guard

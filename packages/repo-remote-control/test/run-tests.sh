@@ -62,7 +62,8 @@ play() {
   local inst n f log
   case $unit in
     rrc-session@*) inst=${unit#rrc-session@}; log="${inst%.service}.session.log" ;;
-    *) inst=${unit#rrc-server@}; log="${inst%.service}.log" ;;
+    rrc-server@*) inst=${unit#rrc-server@}; log="${inst%.service}.log" ;;
+    *) echo active >"$s.state"; return ;;
   esac
   n=$(( $(cat "$s.starts" 2>/dev/null || echo 0) + 1 )); echo "$n" >"$s.starts"
   f="$STUB/output.$n"; [ -f "$f" ] || f="$STUB/output"
@@ -79,7 +80,7 @@ case $verb in
   is-active) st=$(cat "$s.state" 2>/dev/null || echo inactive); show "$st"; [ "$st" = active ]; exit ;;
   is-enabled) st=$(cat "$s.enabled" 2>/dev/null || echo disabled); show "$st"; [ "$st" = enabled ]; exit ;;
   is-failed) st=$(cat "$s.state" 2>/dev/null || echo inactive); show "$st"; [ "$st" = failed ]; exit ;;
-  show) echo "${STUB_PID:-0}" ;;
+  show) cat "$s.pid" 2>/dev/null || echo "${STUB_PID:-0}" ;;
   *) echo "stub systemctl: unexpected: $*" >&2; exit 1 ;;
 esac
 exit 0
@@ -262,8 +263,6 @@ out=$("$RRC" remove "$WEB" --worktrees --force 2>&1); rc=$?
 
 out=$("$RRC" frobnicate 2>&1); rc=$?
 [ "$rc" = 2 ] && grep -q 'usage: rrc' <<<"$out" && ok "an unknown command prints usage" || no "an unknown command prints usage" "rc=$rc"
-out=$("$RRC" restart-all 2>&1); rc=$?
-[ "$rc" != 0 ] && grep -q 'not built yet' <<<"$out" && ok "commands still to come say so" || no "commands still to come say so" "rc=$rc $out"
 
 echo "rrc clone and session"
 REMOTES="$TMP/remotes"; mkdir -p "$REMOTES"
@@ -314,7 +313,7 @@ out=$("$RRC" session "$SES" --name "fix the login page" 2>"$TMP/err"); rc=$?
   && ok "session starts one session and prints its URL" || no "session starts one session and prints its URL" "rc=$rc $out $(cat "$TMP/err")"
 grep -qx 'RRC_ARGS="--permission-mode auto --name fix-the-login-page"' "$RRC_STATE/sessions/$SI.env" \
   && ok "session: auto mode by default, its title as one argument" || no "session: auto mode by default, its title as one argument" "$(cat "$RRC_STATE/sessions/$SI.env")"
-grep -qF -- "--user start $SUNIT" "$STUB/calls" && ! grep -qF -- "enable" "$STUB/calls" \
+grep -qF -- "--user start $SUNIT" "$STUB/calls" && ! grep -qF -- "enable --quiet $SUNIT" "$STUB/calls" \
   && [ "$(readlink "$HOME/.config/systemd/user/rrc-session@.service")" = "$REPO/skill/systemd/rrc-session@.service" ] \
   && ok "session runs from the linked session template and is never enabled" \
   || no "session runs from the linked session template and is never enabled" "$(cat "$STUB/calls")"
@@ -342,6 +341,91 @@ out=$(STUB_FAIL=1 "$RRC" session "$LATE" 2>&1); rc=$?
 [ "$rc" = 1 ] && grep -q 'try again in a minute' <<<"$out" \
   && ok "a session refused as \"already served\" says to try again in a minute" \
   || no "a session refused as \"already served\" says to try again in a minute" "rc=$rc $out"
+
+echo "rrc updates"
+# Three running servers: idle on the old claude, busy on the old claude, and
+# one already on the new one. Each "server" is a real process started from a
+# copy of a binary named after a claude version, so /proc/<pid>/exe says which
+# version it runs, as it would for the real server.
+cat >"$STUB/bin/tmux" <<'EOF'
+#!/usr/bin/env bash
+echo "$*" >>"$STUB/tmux"
+[ "$1" = has-session ] && { [ -n "${STUB_TMUX_UP:-}" ]; exit; }
+exit 0
+EOF
+chmod +x "$STUB/bin/tmux"
+fresh; rm -f "$STUB/tmux"; cp "$FIX/server-ready.out" "$STUB/output"
+IDLE=$(repo "$HOME/repos/up-idle"); BUSY=$(repo "$HOME/repos/up-busy"); NEWR=$(repo "$HOME/repos/up-new")
+for r in "$IDLE" "$BUSY" "$NEWR"; do "$RRC" start "$r" >/dev/null 2>&1; done
+grep -qF -- "--user enable --now --quiet rrc-update.path" "$STUB/calls" \
+  && [ "$(readlink "$HOME/.config/systemd/user/rrc-update.path")" = "$REPO/skill/systemd/rrc-update.path" ] \
+  && ok "start links and enables the update watcher" || no "start links and enables the update watcher" "$(cat "$STUB/calls")"
+grep -qx 'PathChanged=%h/.local/bin/claude' "$REPO/skill/systemd/rrc-update.path" \
+  && grep -qx 'PathChanged=%h/.local/share/claude/versions' "$REPO/skill/systemd/rrc-update.path" \
+  && grep -qx 'ExecStart=%h/.local/bin/rrc on-update' "$REPO/skill/systemd/rrc-update.service" \
+  && ok "the watcher watches the claude symlink and its versions directory, and runs rrc on-update" \
+  || no "the watcher watches the claude symlink and its versions directory, and runs rrc on-update" "units differ"
+cp "$FIX/server-one-session.out" "$RRC_STATE/logs/$(inst "$BUSY").log"
+"$TMP/versions/2.1.304" 60 & P1=$!
+"$TMP/versions/2.1.304" 60 & P2=$!
+"$TMP/versions/2.1.308" 60 & P3=$!
+echo "$P1" >"$STUB/units/rrc-server@$(inst "$IDLE").service.pid"
+echo "$P2" >"$STUB/units/rrc-server@$(inst "$BUSY").service.pid"
+echo "$P3" >"$STUB/units/rrc-server@$(inst "$NEWR").service.pid"
+
+n=$(ncalls)
+STUB_TMUX_UP=1 "$RRC" on-update >"$TMP/out" 2>&1; rc=$?
+newcalls "$n" >"$TMP/new"
+[ "$rc" = 0 ] && grep -qF -- "--user start rrc-server@$(inst "$IDLE").service" "$TMP/new" \
+  && ! grep -qF -- "start rrc-server@$(inst "$BUSY").service" "$TMP/new" && ! grep -qF -- "stop rrc-server@$(inst "$BUSY").service" "$TMP/new" \
+  && ! grep -qF -- "start rrc-server@$(inst "$NEWR").service" "$TMP/new" && ! grep -qF -- "stop rrc-server@$(inst "$NEWR").service" "$TMP/new" \
+  && ok "on-update restarts the idle server on the old claude only" \
+  || no "on-update restarts the idle server on the old claude only" "rc=$rc $(cat "$TMP/out") $(cat "$TMP/new")"
+grep -q 'send-keys -t orchestrator:0 -l \[rrc\] claude was updated to 2.1.308' "$STUB/tmux" \
+  && grep -q "$BUSY (1 open)" "$STUB/tmux" && grep -q "Idle servers restarted: $IDLE" "$STUB/tmux" \
+  && grep -q 'rrc restart-all' "$STUB/tmux" && grep -q 'send-keys -t orchestrator:0 Enter' "$STUB/tmux" \
+  && ok "on-update asks the orchestrator, in its tmux pane, about the busy server" \
+  || no "on-update asks the orchestrator, in its tmux pane, about the busy server" "$(cat "$STUB/tmux" 2>&1)"
+grep -q "restarted (idle): $IDLE" "$RRC_STATE/logs/update.log" && grep -q "still on the old version: $BUSY" "$RRC_STATE/logs/update.log" \
+  && ok "on-update records what it did in state/logs/update.log" || no "on-update records what it did in state/logs/update.log" "$(cat "$RRC_STATE/logs/update.log")"
+
+rm -f "$STUB/tmux"; printf 'ORCHESTRATOR_TMUX="work:2"\nCLONE_BASE="%s/"\n' "$REMOTES" >"$RRC_STATE/config"
+: >"$RRC_STATE/logs/$(inst "$BUSY").log"
+"$RRC" on-update >/dev/null 2>&1
+grep -q "$BUSY (unknown open)" "$RRC_STATE/logs/update.log" && grep -q 'could not reach the orchestrator at work:2' "$RRC_STATE/logs/update.log" \
+  && ! grep -q 'send-keys' "$STUB/tmux" 2>/dev/null \
+  && ok "no session count means busy, the pane comes from ORCHESTRATOR_TMUX, and a missing orchestrator is logged" \
+  || no "no session count means busy, the pane comes from ORCHESTRATOR_TMUX, and a missing orchestrator is logged" "$(tail -4 "$RRC_STATE/logs/update.log")"
+
+echo "$P3" >"$STUB/units/rrc-server@$(inst "$IDLE").service.pid"; echo "$P3" >"$STUB/units/rrc-server@$(inst "$BUSY").service.pid"
+n=$(ncalls); lines=$(wc -l <"$RRC_STATE/logs/update.log")
+"$RRC" on-update >/dev/null 2>&1
+! newcalls "$n" | grep -qF -- "--user start" && [ "$(wc -l <"$RRC_STATE/logs/update.log")" = "$lines" ] \
+  && ok "on-update with every server current does nothing" || no "on-update with every server current does nothing" "$(newcalls "$n")"
+kill "$P1" "$P2" "$P3" 2>/dev/null; wait "$P1" "$P2" "$P3" 2>/dev/null
+
+n=$(ncalls)
+out=$("$RRC" restart "$BUSY" 2>"$TMP/err"); rc=$?
+[ "$rc" = 0 ] && [ "${out#*$'\n'}" = "$URL1" ] && newcalls "$n" | grep -qF -- "--user start rrc-server@$(inst "$BUSY").service" \
+  && grep -q 'ends its open sessions' "$TMP/err" \
+  && ok "restart restarts one server, warns, and prints its URL" || no "restart restarts one server, warns, and prints its URL" "rc=$rc $out"
+n=$(ncalls)
+out=$("$RRC" restart-all 2>/dev/null); rc=$?
+started=$(newcalls "$n" | grep -cF -- "--user start rrc-server@")
+active=$(cat "$STUB"/units/rrc-server@*.state | grep -c active)
+[ "$rc" = 0 ] && [ "$started" = "$active" ] && [ "$started" -ge 3 ] && grep -qx "$IDLE" <<<"$out" && grep -qx "$NEWR" <<<"$out" \
+  && ok "restart-all restarts every running server and prints each URL" \
+  || no "restart-all restarts every running server and prints each URL" "rc=$rc started=$started active=$active $out"
+
+n=$(ncalls)
+out=$("$RRC" teardown 2>&1); rc=$?
+[ "$rc" = 0 ] && newcalls "$n" | grep -qF -- "--user disable --now --quiet rrc-server@$(inst "$IDLE").service" \
+  && newcalls "$n" | grep -qF -- "--user stop rrc-session@$SI.service" \
+  && newcalls "$n" | grep -qF -- "--user disable --now --quiet rrc-update.path" \
+  && [ ! -e "$HOME/.config/systemd/user/rrc-server@.service" ] && [ ! -e "$HOME/.config/systemd/user/rrc-update.path" ] \
+  && [ -f "$RRC_STATE/repos/$(inst "$IDLE").env" ] \
+  && ok "teardown disables every server, stops sessions and the watcher, unlinks the units, keeps state" \
+  || no "teardown disables every server, stops sessions and the watcher, unlinks the units, keeps state" "rc=$rc $out"
 
 echo "hooks"
 # Real git: a repo pushed to its own origin, and the worktrees a server makes:
