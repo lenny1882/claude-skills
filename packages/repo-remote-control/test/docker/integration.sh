@@ -121,6 +121,7 @@ echo "     claude: $before -> $after; waiting 60s for the watcher"
 sleep 60
 exe2=$(exeOf "$DEMO")
 asDev 'cat ~/.claude/skills/repo-remote-control/state/logs/update.log' >>"$RESULTS/integration-update.txt" 2>&1 || true
+userctl status --no-pager rrc-update.path rrc-update.service >>"$RESULTS/integration-update.txt" 2>&1 || true
 check update-installed "claude install changed the binary" test "$before" != "$after"
 check update-fired "the path unit fired: update.log names the idle servers" \
 	grep -q "restarted (idle): $DEMO" "$RESULTS/integration-update.txt"
@@ -154,7 +155,9 @@ trust=$(asDev "jq -r --arg p '$WEB' '.projects[\$p].hasTrustDialogAccepted // em
 check remove "rrc remove disables the server and clears its trust" \
 	test "$(userctl is-active "$(unitOf "$WEB")" 2>/dev/null || true)-$trust" = "inactive-"
 asDev 'rrc teardown' >/dev/null 2>&1 || true
-check teardown "rrc teardown leaves no rrc unit running" test "$(userctl list-units --no-legend 'rrc-*' | wc -l)" = 0
+userctl list-units --all --no-legend 'rrc-*' >"$RESULTS/integration-teardown.txt" 2>&1 || true
+check teardown "rrc teardown leaves no rrc unit loaded (integration-teardown.txt lists any)" \
+	test "$(userctl list-units --no-legend 'rrc-*' | wc -l)" = 0
 
 echo
 echo "Results ($RESULTS):"

@@ -360,11 +360,11 @@ for r in "$IDLE" "$BUSY" "$NEWR"; do "$RRC" start "$r" >/dev/null 2>&1; done
 grep -qF -- "--user enable --now --quiet rrc-update.path" "$STUB/calls" \
   && [ "$(readlink "$HOME/.config/systemd/user/rrc-update.path")" = "$REPO/skill/systemd/rrc-update.path" ] \
   && ok "start links and enables the update watcher" || no "start links and enables the update watcher" "$(cat "$STUB/calls")"
-grep -qx 'PathChanged=%h/.local/bin/claude' "$REPO/skill/systemd/rrc-update.path" \
+grep -qx 'PathChanged=%h/.local/bin' "$REPO/skill/systemd/rrc-update.path" \
   && grep -qx 'PathChanged=%h/.local/share/claude/versions' "$REPO/skill/systemd/rrc-update.path" \
   && grep -qx 'ExecStart=%h/.local/bin/rrc on-update' "$REPO/skill/systemd/rrc-update.service" \
-  && ok "the watcher watches the claude symlink and its versions directory, and runs rrc on-update" \
-  || no "the watcher watches the claude symlink and its versions directory, and runs rrc on-update" "units differ"
+  && ok "the watcher watches the directory holding the claude symlink and its versions directory, and runs rrc on-update" \
+  || no "the watcher watches the directory holding the claude symlink and its versions directory, and runs rrc on-update" "units differ"
 cp "$FIX/server-one-session.out" "$RRC_STATE/logs/$(inst "$BUSY").log"
 "$TMP/versions/2.1.304" 60 & P1=$!
 "$TMP/versions/2.1.304" 60 & P2=$!
@@ -422,6 +422,7 @@ out=$("$RRC" teardown 2>&1); rc=$?
 [ "$rc" = 0 ] && newcalls "$n" | grep -qF -- "--user disable --now --quiet rrc-server@$(inst "$IDLE").service" \
   && newcalls "$n" | grep -qF -- "--user stop rrc-session@$SI.service" \
   && newcalls "$n" | grep -qF -- "--user disable --now --quiet rrc-update.path" \
+  && newcalls "$n" | grep -qF -- "--user reset-failed rrc-*" \
   && [ ! -e "$HOME/.config/systemd/user/rrc-server@.service" ] && [ ! -e "$HOME/.config/systemd/user/rrc-update.path" ] \
   && [ -f "$RRC_STATE/repos/$(inst "$IDLE").env" ] \
   && ok "teardown disables every server, stops sessions and the watcher, unlinks the units, keeps state" \

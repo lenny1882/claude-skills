@@ -144,7 +144,10 @@ message: "To sandbox sessions, set sandbox.enabled to true in settings."
 A running server keeps the old binary until it restarts, and restarting ends
 the sessions open in it.
 
-- A systemd path unit watches `~/.local/bin/claude`.
+- A systemd path unit watches `~/.local/bin`, the directory holding the
+  `claude` symlink, and `~/.local/share/claude/versions`. Not the symlink
+  itself: inotify follows it, so the watch sits on the old binary and
+  relinking never fires it (integration test, 22 Oct).
 - When it changes, idle servers (0 open sessions) restart automatically.
 - For servers with sessions open, the watcher types a message into the
   orchestrator's tmux pane, and the orchestrator asks you straight away.
