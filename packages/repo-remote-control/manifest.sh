@@ -1,7 +1,8 @@
 # What this package installs. Sourced by install.sh and uninstall.sh.
 #
 # The skill directory holds everything: SKILL.md, the rrc command, the unit
-# template, and state/ (per-repo settings, server output, ~/.claude.json
+# template, the two hooks (registered in settings.json by their path inside
+# the skill), and state/ (per-repo settings, server output, ~/.claude.json
 # backups), which the installer keeps across reinstalls. rrc is also put on
 # PATH, for use over SSH. The unit template is not installed here: rrc start
 # links it into ~/.config/systemd/user itself, so systemd always reads the
@@ -22,19 +23,43 @@ FILES=(
 # See reference/layout.md.
 STATE_DIRS=()
 
-# No settings entries for a skill. Leaving this undefined is what tells
-# install.sh to skip settings.json entirely.
-# settings_merge() { :; }
+# The two hooks for Remote Control server sessions. Both act only inside
+# .claude/worktrees/bridge-* and do nothing anywhere else, so they are
+# registered for every session. SessionStart has no matcher: it also runs on
+# resume, when it only re-states the branch instructions to a detached session.
+settings_merge() {
+  jq --arg ss "~/.claude/skills/$PKG/hooks/repo-remote-control-sessionstart.sh" \
+     --arg cg "~/.claude/skills/$PKG/hooks/repo-remote-control-commit-guard.sh" '
+    .hooks //= {}
+    | .hooks.SessionStart = ((.hooks.SessionStart // []) + [
+        { hooks: [{ type: "command", command: $ss }] }
+      ])
+    | .hooks.PreToolUse = ((.hooks.PreToolUse // []) + [
+        { matcher: "Bash", hooks: [{ type: "command", command: $cg }] }
+      ])
+  '
+}
 
 REGISTRATIONS=(
-  "skills/repo-remote-control (no settings entry needed)"
+  "skills/repo-remote-control"
+  "SessionStart: hooks/repo-remote-control-sessionstart.sh"
+  "PreToolUse (matcher: Bash): hooks/repo-remote-control-commit-guard.sh"
 )
 
-# The skill is readable, rrc on PATH runs, and the unit template it links is
-# there with the lines rrc depends on: where it reads per-repo settings and
-# where it writes the output rrc reads the URL from.
+# The skill is readable, rrc on PATH runs, the unit template it links is
+# there with the lines rrc depends on (where it reads per-repo settings and
+# where it writes the output rrc reads the URL from), and the commit guard
+# blocks a commit on a detached HEAD in a bridge-* worktree.
 verify_probe() {
-  local d="$CLAUDE_DIR/skills/$PKG" u
+  local d="$CLAUDE_DIR/skills/$PKG" u t rc
+  t=$(mktemp -d)
+  git -C "$t" init -q && git -C "$t" -c user.name=p -c user.email=p@p commit -q --allow-empty -m p \
+    && git -C "$t" worktree add -q --detach "$t/.claude/worktrees/bridge-probe" 2>/dev/null
+  jq -n --arg c "$t/.claude/worktrees/bridge-probe" '{cwd: $c, tool_input: {command: "git commit -m probe"}}' \
+    | "$d/hooks/repo-remote-control-commit-guard.sh" >/dev/null 2>&1
+  rc=$?
+  rm -rf "$t"
+  [ "$rc" = 2 ] || return 1
   [ -f "$d/SKILL.md" ] || return 1
   head -1 "$d/SKILL.md" | grep -q '^---$' || return 1
   grep -q '^name:' "$d/SKILL.md" && grep -q '^description:' "$d/SKILL.md" || return 1
