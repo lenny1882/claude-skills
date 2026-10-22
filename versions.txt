@@ -1,1 +1,2 @@
+phase-worktrees 1.0.0
 repo-remote-control 1.0.0
