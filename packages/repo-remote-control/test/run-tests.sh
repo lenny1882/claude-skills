@@ -262,5 +262,81 @@ out=$("$RRC" frobnicate 2>&1); rc=$?
 out=$("$RRC" clone x 2>&1); rc=$?
 [ "$rc" != 0 ] && grep -q 'not built yet' <<<"$out" && ok "commands still to come say so" || no "commands still to come say so" "rc=$rc $out"
 
+echo "hooks"
+# Real git: a repo pushed to its own origin, and the worktrees a server makes:
+# .claude/worktrees/bridge-<id> on a generated worktree-bridge-<id> branch.
+SS="$REPO/skill/hooks/repo-remote-control-sessionstart.sh"
+CG="$REPO/skill/hooks/repo-remote-control-commit-guard.sh"
+H=$(repo "$TMP/hooks/app"); HW="$H/.claude/worktrees"
+startHook() { jq -n --arg c "$1" --arg s "${2:-startup}" '{cwd: $c, source: $s, hook_event_name: "SessionStart"}' | "$SS"; }
+guard() { jq -n --arg c "$1" --arg x "$2" '{cwd: $c, tool_name: "Bash", tool_input: {command: $x}}' | "$CG" 2>"$TMP/guard.err"; }
+onBranch() { git -C "$1" symbolic-ref --short -q HEAD; }
+
+git -C "$H" worktree add -q -b worktree-bridge-new "$HW/bridge-new"
+out=$(startHook "$HW/bridge-new"); rc=$?
+[ "$rc" = 0 ] && [ -z "$(onBranch "$HW/bridge-new")" ] && ! git -C "$H" show-ref -q --verify refs/heads/worktree-bridge-new \
+  && ok "SessionStart in a new server worktree: HEAD detached, generated branch deleted" \
+  || no "SessionStart in a new server worktree: HEAD detached, generated branch deleted" "rc=$rc branch=$(onBranch "$HW/bridge-new")"
+jq -e '.hookSpecificOutput.hookEventName == "SessionStart"
+  and (.hookSpecificOutput.additionalContext | test("git switch -c <type>/<KEY>-<description>"))' <<<"$out" >/dev/null 2>&1 \
+  && ok "SessionStart tells the session to create its branch first" \
+  || no "SessionStart tells the session to create its branch first" "$out"
+
+mkdir -p "$HW/bridge-new/sub"; out=$(startHook "$HW/bridge-new/sub" resume)
+[ -n "$out" ] && ok "SessionStart on resume, still detached, says it again" || no "SessionStart on resume, still detached, says it again" "no output"
+
+git -C "$H" worktree add -q -b worktree-bridge-used "$HW/bridge-used"
+git -C "$HW/bridge-used" commit -q --allow-empty -m "work"
+out=$(startHook "$HW/bridge-used" resume)
+[ "$(onBranch "$HW/bridge-used")" = worktree-bridge-used ] && [ -z "$out" ] \
+  && ok "SessionStart leaves a generated branch that already has commits" \
+  || no "SessionStart leaves a generated branch that already has commits" "branch=$(onBranch "$HW/bridge-used") $out"
+
+git -C "$H" worktree add -q -b feature/HB-1-named "$HW/bridge-named"
+out=$(startHook "$HW/bridge-named" resume)
+[ "$(onBranch "$HW/bridge-named")" = feature/HB-1-named ] && [ -z "$out" ] \
+  && ok "SessionStart leaves a session already on a named branch alone, silently" \
+  || no "SessionStart leaves a session already on a named branch alone, silently" "$out"
+
+git -C "$H" worktree add -q -b worktree-agent-x "$TMP/hooks/agent-x"
+git -C "$H" worktree add -q -b worktree-bridge-elsewhere "$TMP/hooks/elsewhere/.claude/worktrees/not-bridge"
+out=$(startHook "$TMP/hooks/agent-x"); out2=$(startHook "$H")
+[ "$(onBranch "$TMP/hooks/agent-x")" = worktree-agent-x ] && [ -z "$out$out2" ] \
+  && ok "SessionStart does nothing outside .claude/worktrees/bridge-*" \
+  || no "SessionStart does nothing outside .claude/worktrees/bridge-*" "$out$out2"
+
+D="$HW/bridge-new"
+guard "$D" 'git commit -m "first"'; rc=$?
+[ "$rc" = 2 ] && grep -q 'git switch -c <type>/<KEY>-<description>' "$TMP/guard.err" \
+  && ok "guard blocks git commit on a detached HEAD in a server worktree, saying what to do" \
+  || no "guard blocks git commit on a detached HEAD in a server worktree, saying what to do" "rc=$rc $(cat "$TMP/guard.err")"
+guard "$H" "git -C $D commit -am x"; rc1=$?
+guard "$H" "cd $D && git add . && git commit -m x"; rc2=$?
+guard "$D/.." "cd bridge-new; git --no-pager -c core.editor=true commit"; rc3=$?
+guard "$D" "GIT_AUTHOR_NAME=x git commit -m x"; rc4=$?
+[ "$rc1$rc2$rc3$rc4" = 2222 ] \
+  && ok "guard follows git -C, cd, git's own options and env assignments" \
+  || no "guard follows git -C, cd, git's own options and env assignments" "rc=$rc1$rc2$rc3$rc4"
+guard "$D" 'git switch -c feature/HB-2-thing && git commit -m x'; rc1=$?
+guard "$D" 'git checkout -b bug/fix && git commit -m x'; rc2=$?
+guard "$D" 'git switch --detach && git commit -m x'; rc3=$?
+[ "$rc1$rc2" = 00 ] && [ "$rc3" = 2 ] \
+  && ok "guard lets a commit through after git switch -c / checkout -b in the same command, not after --detach" \
+  || no "guard lets a commit through after git switch -c / checkout -b in the same command, not after --detach" "rc=$rc1$rc2$rc3"
+guard "$HW/bridge-named" 'git commit -m x'; rc1=$?
+guard "$H" 'git commit -m x'; rc2=$?
+git -C "$H" worktree add -q --detach "$TMP/hooks/detached-elsewhere"
+guard "$TMP/hooks/detached-elsewhere" 'git commit -m x'; rc3=$?
+[ "$rc1$rc2$rc3" = 000 ] \
+  && ok "guard allows commits on a branch, and anywhere outside server worktrees" \
+  || no "guard allows commits on a branch, and anywhere outside server worktrees" "rc=$rc1$rc2$rc3"
+guard "$D" 'git log --grep commit'; rc1=$?
+guard "$D" 'git commit-tree HEAD^{tree} -m x'; rc2=$?
+guard "$D" 'echo git commit'; rc3=$?
+guard "$D" 'git status'; rc4=$?
+[ "$rc1$rc2$rc3$rc4" = 0000 ] \
+  && ok "guard ignores commands that only mention commit" \
+  || no "guard ignores commands that only mention commit" "rc=$rc1$rc2$rc3$rc4"
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" = 0 ]
