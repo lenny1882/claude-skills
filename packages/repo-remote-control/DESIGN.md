@@ -446,8 +446,13 @@ hook and the commit guard; `SKILL.md` and the README. Decided while building:
 Done 22 Oct: `confirm.sh refused-exit` passed (a refused server exits with
 status 1, so `Restart=on-failure` retries it), and `integration.sh` passed all
 13 checks, the update watcher among them once it watched `~/.local/bin`.
+`integration.sh --app` then passed all 16: in a real server session the
+`SessionStart` hook detached HEAD and the commit guard blocked a commit, and
+a busy server was left running while the orchestrator pane got the `[rrc]`
+message.
 
-1. Run `test/docker/integration.sh --app`: the hooks in a real server session,
-   and the `[rrc]` message for a busy server.
-2. Ask the package-kit session for the `pre_uninstall` hook.
-3. Install: `./test/run-tests.sh && ./install.sh --link` (outside the sandbox).
+1. `pre_uninstall`: the package-kit session added it to the kit's
+   `uninstall.sh`, to ship in kit v1.3.0. Once that is released, run the kit's
+   `upgrade-package.sh <package-dir> --apply`; `manifest.sh` needs no change.
+2. Install: `./test/run-tests.sh && ./install.sh --link`, in your own terminal
+   or with `!`.
