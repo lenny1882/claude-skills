@@ -1,7 +1,8 @@
 # claude-skills
 
 Claude Code skills for this machine's workflows: parallel GSD phases in their
-own worktrees, and Flutter hot reload on a remote Mac.
+own worktrees, Flutter hot reload on a remote Mac, and a Remote Control server
+per repo.
 
 Every package under `packages/` is versioned, released and installed on its
 own. A fault in one says nothing about another, so each can be fixed and
@@ -13,7 +14,7 @@ shipped without touching the rest.
 | --- | --- |
 | [`phase-worktrees`](packages/phase-worktrees/) | One git worktree and branch per GSD phase, so several phases can be executed at once |
 | [`flutter-hot-reload-mac`](packages/flutter-hot-reload-mac/) | Builds a Flutter app on a remote Mac's iOS simulator and hot reloads each local save, returning a screenshot |
-| [`repo-remote-control`](packages/repo-remote-control/) | TODO: one line on what it does |
+| [`repo-remote-control`](packages/repo-remote-control/) | Runs a Claude Remote Control server per repo as a systemd user unit, so sessions can be opened in that repo from claude.ai or the Claude app |
 <!-- new-package.sh --monorepo adds a row above this line -->
 
 ## Install a package
