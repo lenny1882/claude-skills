@@ -63,6 +63,10 @@ Re-running the installer is safe and is how you upgrade. It merges into
 touches its own entries. If Claude Code is already running, `/hooks` forces a
 settings reload.
 
+Run the installer in your own terminal or with `!` in Claude Code. Claude's own
+Bash tool can't: its sandbox blocks writes to `~/.claude/skills` and
+`~/.local/bin`.
+
 ## Update
 
     ./update.sh            check, ask, upgrade, reinstall
@@ -133,6 +137,11 @@ units keep running a deleted skill.
 
 Redirects `HOME` and `CLAUDE_DIR` into a temp directory, so your real config is
 never touched. `./test/run-tests.sh` at the repo root runs every package's.
+They run anywhere: your own terminal, `!`, or Claude's own Bash tool.
+
+The Docker checks, `test/docker/confirm.sh` and `test/docker/integration.sh`,
+say where to run them at the top of each script, and refuse to start in the
+wrong place.
 
 ## Releasing
 

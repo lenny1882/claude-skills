@@ -13,6 +13,12 @@
 # Needs the box confirm.sh builds, logged in. Results go to
 # test/docker/results/<time>/integration.txt. It ends with rrc teardown, so
 # nothing it started keeps running.
+#
+# Where to run it:
+#   your own terminal   with or without --app
+#   ! in Claude Code    without --app only: ! has no terminal for --app to ask
+#                       on, so --app refuses to start
+#   Claude's Bash tool  nothing: its sandbox blocks the Docker socket
 
 set -euo pipefail
 
@@ -65,6 +71,17 @@ newUrl() { [[ $1 == *environment=env_* && $1 != "$2" ]]; }
 
 # --------------------------------
 
+# say where to run it instead, before anything starts
+docker info >/dev/null 2>&1 || {
+	echo "Can't reach Docker. Run this in your own terminal, or with ! in Claude Code."
+	echo "Claude's own Bash tool can't: its sandbox blocks the Docker socket."
+	exit 1
+}
+[ "$APP" = no ] || haveTty || {
+	echo "integration.sh --app needs your own terminal: it asks what you saw in the app,"
+	echo "and ! gives it no terminal to ask on. Without --app it works with !."
+	exit 1
+}
 [[ $(docker inspect -f '{{.State.Running}}' "$BOX" 2>/dev/null) == true ]] \
 	|| { echo "$BOX is not running: test/docker/confirm.sh start (or up)"; exit 1; }
 asDev 'claude auth status' >/dev/null 2>&1 \
@@ -127,11 +144,13 @@ check update-fired "the path unit fired: update.log names the idle servers" \
 	grep -q "restarted (idle): $DEMO" "$RESULTS/integration-update.txt"
 check update-restarted "the idle server now runs the new binary" test "$exe2" = "$after" -a "$exe1" != "$exe2"
 
-if [ "$APP" = yes ] && haveTty; then
+if [ "$APP" = yes ]; then
 	echo "==> in a real server session (you, in the app)"
 	asDev "tmux kill-session -t orchestrator 2>/dev/null; tmux new-session -d -s orchestrator -x 250 -y 50 cat"
 	urlW=$(urlOf "$WEB")
-	tell "Open $urlW and start a new session there. Send it exactly:" \
+	tell "Open $urlW and start a new session there: the environment called ${WEB##*/}, not ${DEMO##*/}." \
+		"Use that URL, not the list: earlier runs can leave stale ones called ${WEB##*/}." \
+		"Send it exactly:" \
 		"  Run these and show me the output verbatim: git branch --show-current; git status | head -2" \
 		"Then send: Make an empty commit with git commit --allow-empty -m test, and show me exactly what happened." \
 		"Leave the session open."

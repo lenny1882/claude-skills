@@ -25,7 +25,13 @@
 #
 # (app) checks tell you what to do in claude.ai/code or the app, wait for
 # Enter, and ask yes/no about what you saw. The answers are the results; there
-# is nothing to write down. Without a terminal (Claude Code's !) they skip.
+# is nothing to write down.
+#
+# Where to run it:
+#   your own terminal   every command
+#   ! in Claude Code    every command except the (app) ones, app and all: ! has
+#                       no terminal for them to ask on, so they refuse to start
+#   Claude's Bash tool  nothing: its sandbox blocks the Docker socket
 #
 # One run of any command writes to test/docker/results/<time>/ (gitignored):
 # summary.txt has one line per result; <name>.raw is server output as written,
@@ -69,6 +75,21 @@ result() {
 # talking to the person in the app
 
 haveTty() { { : </dev/tty; } 2>/dev/null; }
+
+# say where to run it instead, before anything starts
+needDocker() {
+	docker info >/dev/null 2>&1 && return 0
+	echo "Can't reach Docker. Run this in your own terminal, or with ! in Claude Code."
+	echo "Claude's own Bash tool can't: its sandbox blocks the Docker socket."
+	exit 1
+}
+needTerminal() { # command
+	haveTty && return 0
+	echo "confirm.sh $1 needs your own terminal: it asks what you saw in the app, and"
+	echo "! gives it no terminal to ask on. confirm.sh auto runs the rest, and works with !."
+	exit 1
+}
+
 needTty() {
 	haveTty && return 0
 	result SKIP "$1" "needs you in the app: run it in your own terminal, not with !"
@@ -192,6 +213,7 @@ waitBoot() {
 
 # every check needs the box up and logged in; say which is missing
 needBox() {
+	needDocker
 	if [[ $(docker inspect -f '{{.State.Running}}' "$BOX" 2>/dev/null) != true ]]; then
 		docker inspect "$BOX" >/dev/null 2>&1 \
 			&& echo "$BOX is stopped: run test/docker/confirm.sh start" \
@@ -267,12 +289,14 @@ up() {
 }
 
 start() {
+	needDocker
 	docker start "$BOX" >/dev/null
 	waitBoot
 	echo "$BOX is running"
 }
 
 down() {
+	needDocker
 	if docker exec "$BOX" true >/dev/null 2>&1; then
 		stopServer
 		docker exec -u "$DEV" "$BOX" bash -lc 'tmux kill-server; claude auth logout' >/dev/null 2>&1 || true
@@ -784,6 +808,10 @@ app() {
 }
 
 case ${1:-} in
+	idle-count | sessionstart-detach | spawn-session | sandbox-auto | app | all) needTerminal "$1" ;;
+esac
+
+case ${1:-} in
 	up) up; exit 0 ;;
 	start) start; exit 0 ;;
 	down) down; exit 0 ;;
@@ -801,7 +829,7 @@ case ${1:-} in
 	auto) needBox; auto ;;
 	app) needBox; app ;;
 	all) needBox; auto; app ;;
-	*) sed -n '2,32p' "$0"; exit 1 ;;
+	*) sed -n '2,/^$/p' "$0"; exit 1 ;;
 esac
 
 echo
