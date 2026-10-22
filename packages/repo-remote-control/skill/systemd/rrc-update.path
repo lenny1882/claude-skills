@@ -4,16 +4,21 @@
 # restarts only idle servers and asks about the rest through the
 # orchestrator. Enabled by the first rrc start.
 #
-# ~/.local/bin/claude is a symlink into ~/.local/share/claude/versions/, and
-# an update can change either, so both are watched. rrc on-update compares
-# what each server runs with what the symlink points at, so extra triggers
-# are harmless.
+# ~/.local/bin/claude is a symlink into ~/.local/share/claude/versions/.
+# The directory holding the symlink is watched, not the symlink: inotify
+# follows a symlink, so PathChanged on it watches the binary it pointed at
+# when the watch was set, and relinking claude to another version never fires
+# it (integration test, 22 Oct). Watching the versions directory alone misses
+# a switch to a version that is already there, which writes nothing in it.
+# Both fire on unrelated changes too, such as another tool installing into
+# ~/.local/bin; rrc on-update compares what each server runs with what the
+# symlink points at, so extra triggers are harmless.
 
 [Unit]
 Description=Watch the claude binary for updates (repo-remote-control)
 
 [Path]
-PathChanged=%h/.local/bin/claude
+PathChanged=%h/.local/bin
 PathChanged=%h/.local/share/claude/versions
 Unit=rrc-update.service
 

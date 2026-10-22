@@ -89,7 +89,8 @@ tarball as well as a clone — no git needed.
   the environment URL and the "Capacity: N/32" session count from there.
 - The unit templates live in the skill and are linked into
   `~/.config/systemd/user` by the first `rrc start`, which also enables
-  `rrc-update.path`. That watches the `claude` binary and runs
+  `rrc-update.path`. That watches `~/.local/bin` and
+  `~/.local/share/claude/versions` and runs
   `rrc on-update`, which compares each server's `/proc/<pid>/exe` with what
   `~/.local/bin/claude` points at.
 - Two hooks, registered in `settings.json` by their path in the skill, act only

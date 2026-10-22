@@ -569,6 +569,9 @@ cmdTeardown() {
 		systemctl --user stop "$(sessionUnitOf "$(basename "$u" .env)")" 2>/dev/null || true
 	done
 	systemctl --user disable --now --quiet rrc-update.path 2>/dev/null || true
+	systemctl --user stop rrc-update.service 2>/dev/null || true
+	# a failed unit stays listed after its file is gone, until this
+	systemctl --user reset-failed 'rrc-*' 2>/dev/null || true
 	for u in rrc-server@.service rrc-session@.service rrc-update.path rrc-update.service; do
 		rm -f "$UNIT_DIR/$u"
 	done
