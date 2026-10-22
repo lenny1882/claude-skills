@@ -1,0 +1,27 @@
+# One Claude Remote Control server per repo, started by `rrc start`. The
+# instance is the repo path escaped with `systemd-escape --path`, so %I is the
+# path without its leading slash.
+#
+# The aws-workspace session tested this template's core; the rest is from the
+# Docker checks in test/docker/ (see DESIGN.md):
+# - per-repo flags come from the EnvironmentFile rrc start writes, unquoted
+#   $RRC_ARGS so systemd splits them into separate arguments
+# - output goes to a file that is emptied at every start; rrc reads the
+#   environment URL from it, because the URL changes on every restart
+# - a server started just after another one in the same folder stopped is
+#   refused for about 70 seconds and exits; Restart=on-failure retries it
+
+[Unit]
+Description=Claude Remote Control server in /%I
+
+[Service]
+WorkingDirectory=/%I
+EnvironmentFile=%h/.claude/skills/repo-remote-control/state/repos/%i.env
+ExecStart=%h/.local/bin/claude remote-control --spawn worktree $RRC_ARGS
+StandardOutput=truncate:%h/.claude/skills/repo-remote-control/state/logs/%i.log
+StandardError=inherit
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=default.target

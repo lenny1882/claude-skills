@@ -1,0 +1,421 @@
+#!/usr/bin/env bash
+# rrc: one Claude Remote Control server per repo, as a systemd user service.
+#
+# Why this exists: `claude remote-control` only opens sessions in its own
+# directory, so reaching every repo on the always-on box from claude.ai needs
+# one server per repo, and each has to survive reboots. Starting one by hand
+# means trusting the repo in ~/.claude.json, writing a unit, and fishing the
+# environment URL out of a redrawing status screen. rrc does it the same way
+# every time, for you over SSH and for the orchestrator through the skill.
+# DESIGN.md has each decision and the Docker evidence behind it.
+#
+# Things that look simplifiable and are not:
+# - The URL is read from the server's output on every call, never stored: it
+#   changes on every restart.
+# - Hand out the URL, not the environment name. The app names an environment
+#   after the folder, and a stopped server's environment can stay listed
+#   under the same name; a session opened in it never starts.
+# - Before starting, the output file is emptied by rrc itself. Otherwise the
+#   previous run's URL is still in it for a moment and gets reported as the
+#   new one.
+# - A server started just after another one in the same folder stopped is
+#   refused for about 70 seconds ("already served") and exits. The unit's
+#   Restart=on-failure retries it; rrc start only waits for the URL.
+# - ~/.claude.json is rewritten by every running claude. Trust goes in through
+#   a temp file and mv, after a backup, and rrc still watches the server's
+#   output for "Workspace not trusted" in case another claude's write undid it.
+# - rrc must run outside Claude's sandbox: the sandbox blocks the user bus,
+#   ~/.config/systemd/user and ~/.claude.json. setup.sh lists rrc in
+#   sandbox.excludedCommands.
+
+set -euo pipefail
+
+CLAUDE_DIR=${CLAUDE_DIR:-$HOME/.claude}
+SKILL=${RRC_SKILL_DIR:-$CLAUDE_DIR/skills/repo-remote-control}
+STATE=${RRC_STATE:-$SKILL/state}
+CLAUDE_JSON=${RRC_CLAUDE_JSON:-$HOME/.claude.json}
+UNIT_DIR=$HOME/.config/systemd/user
+WAIT=${RRC_WAIT:-120}
+POLL=${RRC_POLL:-1}
+MODES="acceptEdits auto bypassPermissions default dontAsk plan"
+
+usage() {
+	cat <<-'EOF'
+		usage: rrc <command> [options] [dir]
+
+		  start [dir]     trust the repo, enable and start its server, print its URL
+		      --permission-mode <mode>   for its sessions (default auto)
+		      --create-session-in-dir    also open a session in the main checkout at start
+		      --no-create-session-in-dir (the default)
+		      --prefix <prefix>          session-title prefix (default: path under ~/repos)
+		      --allow-unsandboxed        start even though sandbox.enabled is off;
+		                                 only with the user's explicit yes
+		  list            every repo with a server: state, URL, sessions, errors
+		  stop [dir]      stop the server; it comes back at the next boot
+		  disable [dir]   stop it and keep it off; trust and settings stay
+		  remove [dir]    disable, forget its settings and output, clear its trust,
+		                  and list the server's worktrees
+		      --worktrees   also delete the server's worktrees that have no
+		                    uncommitted or unpushed work
+		      --force       with --worktrees, delete those with work as well
+
+		dir defaults to the current directory; any directory inside the repo will do.
+		Give people the URL rrc prints, never the environment's name.
+	EOF
+}
+
+die() { printf 'rrc: %s\n' "$*" >&2; exit 1; }
+note() { printf '%s\n' "$*" >&2; }
+
+# --------------------------------
+# repos, units and files
+
+# The main checkout's root, also when called from inside one of its worktrees:
+# a server belongs to the repo, and trust is keyed on the repo root.
+repoRoot() {
+	local dir=$1 common
+	[ -d "$dir" ] || die "no such directory: $dir"
+	common=$(git -C "$dir" rev-parse --git-common-dir 2>/dev/null) \
+		|| die "$dir is not in a git repository: every server session gets its own git worktree"
+	case $common in /*) ;; *) common=$(cd "$dir" && cd "$common" && pwd -P) ;; esac
+	if [ "$(basename "$common")" = .git ]; then
+		dirname "$common"
+	else
+		git -C "$dir" rev-parse --show-toplevel
+	fi
+}
+
+instanceOf() { systemd-escape --path "$1"; }
+unitOf() { printf 'rrc-server@%s.service' "$1"; }
+envFileOf() { printf '%s/repos/%s.env' "$STATE" "$1"; }
+logFileOf() { printf '%s/logs/%s.log' "$STATE" "$1"; }
+
+# KEY=value or KEY="value" from a file rrc wrote, read without sourcing it
+valueIn() { # file key
+	[ -f "$1" ] || return 0
+	sed -n "s/^$2=//p" "$1" | tail -1 | sed 's/^"//; s/"$//'
+}
+
+reposRoot() { local r; r=$(valueIn "$STATE/config" REPOS_ROOT); printf '%s' "${r:-$HOME/repos}"; }
+
+# the repo's path under ~/repos, made safe for an argument: client_hugoboss/web
+defaultPrefix() {
+	local root=$1 base rel
+	base=$(reposRoot)
+	case $root in "$base"/*) rel=${root#"$base"/} ;; *) rel=$(basename "$root") ;; esac
+	sanitisePrefix "$rel"
+}
+sanitisePrefix() { printf '%s' "$1" | sed 's#[^A-Za-z0-9._/-]#-#g'; }
+
+# The unit template lives with the skill; systemd only reads units from
+# ~/.config/systemd/user, so it is linked there. Linked rather than copied so
+# an upgrade of the skill is picked up by the next daemon-reload.
+ensureUnit() {
+	local src=$SKILL/systemd/rrc-server@.service dst=$UNIT_DIR/rrc-server@.service
+	[ -f "$src" ] || die "the repo-remote-control skill is not installed: no $src"
+	if [ "$(readlink "$dst" 2>/dev/null)" != "$src" ]; then
+		mkdir -p "$UNIT_DIR"
+		ln -sfn "$src" "$dst"
+	fi
+	systemctl --user daemon-reload
+}
+
+# one rrc at a time changes state or ~/.claude.json
+lock() {
+	mkdir -p "$STATE"
+	exec 9>"$STATE/.lock"
+	command -v flock >/dev/null 2>&1 || return 0
+	flock -w 60 9 || die "another rrc has held $STATE/.lock for a minute"
+}
+
+# --------------------------------
+# the sandbox and trust
+
+sandboxOn() {
+	local f
+	for f in /etc/claude-code/managed-settings.json "$CLAUDE_DIR/settings.json"; do
+		[ -s "$f" ] && jq -e '.sandbox.enabled == true' "$f" >/dev/null 2>&1 && return 0
+	done
+	return 1
+}
+
+trusted() { jq -e --arg p "$1" '.projects[$p].hasTrustDialogAccepted == true' "$CLAUDE_JSON" >/dev/null 2>&1; }
+
+# Back up, then jq into a temp file next to it and mv over it, so a reader
+# never sees half a file and the window for losing another claude's write is
+# as short as it can be. The last five backups are kept.
+editClaudeJson() { # filter, then jq args
+	local filter=$1 tmp b; shift
+	[ -s "$CLAUDE_JSON" ] || die "$CLAUDE_JSON not found: run claude once first"
+	mkdir -p "$STATE/backups"
+	b="$STATE/backups/claude.json.$(date +%Y%m%d-%H%M%S).$$"
+	cp -p "$CLAUDE_JSON" "$b"
+	# shellcheck disable=SC2012
+	ls -1t "$STATE/backups"/claude.json.* | tail -n +6 | xargs -r rm -f
+	tmp=$(mktemp "$CLAUDE_JSON.rrc.XXXXXX")
+	if jq "$@" "$filter" "$CLAUDE_JSON" >"$tmp" 2>/dev/null && [ -s "$tmp" ]; then
+		chmod --reference="$CLAUDE_JSON" "$tmp" 2>/dev/null || true
+		mv "$tmp" "$CLAUDE_JSON"
+	else
+		rm -f "$tmp"
+		die "could not update $CLAUDE_JSON; it is unchanged (backup: $b)"
+	fi
+}
+
+setTrust() {
+	trusted "$1" && return 0
+	editClaudeJson '.projects //= {} | .projects[$p] //= {} | .projects[$p].hasTrustDialogAccepted = true' --arg p "$1"
+}
+
+clearTrust() {
+	jq -e --arg p "$1" '.projects[$p] // {} | has("hasTrustDialogAccepted")' "$CLAUDE_JSON" >/dev/null 2>&1 || return 0
+	editClaudeJson 'del(.projects[$p].hasTrustDialogAccepted)' --arg p "$1"
+}
+
+# --------------------------------
+# reading a server's output
+
+# escape codes out: CSI, OSC (hyperlinks), charset and single-character ones
+plain() {
+	[ -f "$1" ] || return 0
+	sed -E 's/\x1b\[[0-9;?<>=]*[ -\/]*[@-~]//g; s/\x1b\][^\x07\x1b]*(\x07|\x1b\\)//g; s/\x1b[()][A-Z0-9]//g; s/\x1b[=>78DEHMc]//g; s/\r/\n/g' "$1"
+}
+urlIn() { plain "$1" | grep -o 'https://claude\.ai/code?environment=env_[A-Za-z0-9_-]*' | tail -1 || true; }
+sessionsIn() { plain "$1" | grep -o 'Capacity: [0-9]*/[0-9]*' | tail -1 | sed 's/^Capacity: //' || true; }
+lastErrorIn() { plain "$1" | grep -E '^[[:space:]]*Error:' | tail -1 | sed -E 's/^[[:space:]]+//' || true; }
+
+# empty the output, then start: see the header for why rrc empties it itself
+startFresh() { # unit log
+	systemctl --user stop "$1" >/dev/null 2>&1 || true
+	: >"$2"
+	systemctl --user start "$1"
+}
+
+waitForUrl() { # unit log root
+	local unit=$1 log=$2 root=$3 url err end retried=0 told=0
+	end=$((SECONDS + WAIT))
+	while :; do
+		url=$(urlIn "$log")
+		[ -n "$url" ] && { printf '%s\n' "$url"; return 0; }
+		if [ "$retried" = 0 ] && plain "$log" | grep -q 'Workspace not trusted'; then
+			note "  the server says the repo is not trusted; another claude may have rewritten $CLAUDE_JSON. Setting it again and restarting."
+			setTrust "$root"
+			startFresh "$unit" "$log"
+			retried=1
+		elif [ "$told" = 0 ] && plain "$log" | grep -q 'already served'; then
+			note "  the previous server in this folder is still registered. systemd retries every 30 seconds; it clears in about 70."
+			told=1
+		fi
+		if systemctl --user is-failed --quiet "$unit"; then
+			err=$(lastErrorIn "$log")
+			die "$unit failed. Last error: ${err:-none}. Output: $log"
+		fi
+		if [ "$SECONDS" -ge "$end" ]; then
+			err=$(lastErrorIn "$log")
+			die "no environment URL after ${WAIT}s. Last error: ${err:-none}. Output: $log"
+		fi
+		sleep "$POLL"
+	done
+}
+
+# --------------------------------
+# commands
+
+cmdStart() {
+	local dir=. mode="" create="" prefix="" allow=""
+	while [ $# -gt 0 ]; do
+		case $1 in
+			--permission-mode) mode=${2:-}; shift ;;
+			--permission-mode=*) mode=${1#*=} ;;
+			--create-session-in-dir) create=yes ;;
+			--no-create-session-in-dir) create=no ;;
+			--prefix) prefix=${2:-}; shift ;;
+			--prefix=*) prefix=${1#*=} ;;
+			--allow-unsandboxed) allow=yes ;;
+			-*) die "start: unknown option $1" ;;
+			*) dir=$1 ;;
+		esac
+		shift
+	done
+
+	local root inst unit env log
+	root=$(repoRoot "$dir")
+	inst=$(instanceOf "$root"); unit=$(unitOf "$inst")
+	env=$(envFileOf "$inst"); log=$(logFileOf "$inst")
+	lock
+
+	# options not given keep what this repo had, else the defaults
+	mode=${mode:-$(valueIn "$env" RRC_PERMISSION_MODE)}; mode=${mode:-auto}
+	create=${create:-$(valueIn "$env" RRC_CREATE_SESSION_IN_DIR)}; create=${create:-no}
+	prefix=${prefix:-$(valueIn "$env" RRC_PREFIX)}; prefix=$(sanitisePrefix "${prefix:-$(defaultPrefix "$root")}")
+	allow=${allow:-$(valueIn "$env" RRC_ALLOW_UNSANDBOXED)}; allow=${allow:-no}
+	case " $MODES " in *" $mode "*) ;; *) die "start: --permission-mode must be one of: $MODES" ;; esac
+	[ -n "$prefix" ] || die "start: the prefix is empty"
+
+	if [ "$allow" != yes ] && ! sandboxOn; then
+		note "rrc: the sandbox is off: sandbox.enabled is not true in $CLAUDE_DIR/settings.json."
+		note "This server's sessions would run commands unsandboxed. Ask the user. Only if they say yes,"
+		note "run it again with --allow-unsandboxed; that choice is remembered for this repo."
+		exit 3
+	fi
+
+	local args="--permission-mode $mode"
+	[ "$create" = yes ] && args+=" --create-session-in-dir" || args+=" --no-create-session-in-dir"
+	args+=" --remote-control-session-name-prefix $prefix"
+
+	mkdir -p "$STATE/repos" "$STATE/logs"
+	local new changed=no
+	new=$(cat <<-EOF
+		# written by rrc start; change it with rrc start and its options
+		RRC_ROOT="$root"
+		RRC_PERMISSION_MODE="$mode"
+		RRC_CREATE_SESSION_IN_DIR="$create"
+		RRC_PREFIX="$prefix"
+		RRC_ALLOW_UNSANDBOXED="$allow"
+		RRC_ARGS="$args"
+	EOF
+	)
+	if [ "$new" != "$(cat "$env" 2>/dev/null)" ]; then
+		[ -f "$env" ] && changed=yes
+		printf '%s\n' "$new" >"$env.tmp" && mv "$env.tmp" "$env"
+	fi
+
+	setTrust "$root"
+	ensureUnit
+
+	if systemctl --user is-active --quiet "$unit"; then
+		systemctl --user enable --quiet "$unit"
+		if [ "$changed" = yes ]; then
+			note "restarting $root with its new settings; this ends its open sessions"
+			startFresh "$unit" "$log"
+		fi
+	else
+		systemctl --user enable --quiet "$unit"
+		startFresh "$unit" "$log"
+	fi
+
+	local url
+	url=$(waitForUrl "$unit" "$log" "$root")
+	printf '%s\n%s\n' "$root" "$url"
+}
+
+cmdList() {
+	local files current env inst unit log root state enabled sessions url pid exe err
+	shopt -s nullglob
+	files=("$STATE"/repos/*.env)
+	if [ "${#files[@]}" -eq 0 ]; then
+		echo "no repo has a server; start one with: rrc start <dir>"
+		return 0
+	fi
+	current=$(readlink -f "$HOME/.local/bin/claude" 2>/dev/null || true)
+	for env in "${files[@]}"; do
+		inst=$(basename "$env" .env); unit=$(unitOf "$inst"); log=$(logFileOf "$inst")
+		root=$(valueIn "$env" RRC_ROOT)
+		state=$(systemctl --user is-active "$unit" 2>/dev/null || true)
+		enabled=$(systemctl --user is-enabled "$unit" 2>/dev/null || true)
+		sessions=$(sessionsIn "$log"); url=$(urlIn "$log"); err=$(lastErrorIn "$log")
+		printf '%s\n' "$root"
+		printf '  %s, %s%s\n' "${state:-unknown}" "${enabled:-unknown}" "${sessions:+, sessions $sessions}"
+		[ "$state" = active ] && [ -n "$url" ] && printf '  %s\n' "$url"
+		if [ "$state" = active ] && [ -n "$current" ]; then
+			pid=$(systemctl --user show -p MainPID --value "$unit" 2>/dev/null || true)
+			exe=$(readlink "/proc/${pid:-0}/exe" 2>/dev/null || true)
+			exe=${exe% (deleted)}
+			if [ -n "$exe" ] && [ "$exe" != "$current" ]; then
+				printf '  runs an older claude (%s; %s is installed): restarting it updates it and ends its open sessions\n' \
+					"$(basename "$exe")" "$(basename "$current")"
+			fi
+		fi
+		[ -n "$err" ] && printf '  last error: %s\n' "$err"
+	done
+	return 0
+}
+
+# the unit and env file for a dir's repo, or stop if rrc never started one
+known() { # dir
+	local root inst
+	root=$(repoRoot "$1"); inst=$(instanceOf "$root")
+	[ -f "$(envFileOf "$inst")" ] || die "no server for $root: start one with rrc start $root"
+	printf '%s\n%s\n' "$root" "$inst"
+}
+
+cmdStop() {
+	local dir=${1:-.} r root inst
+	r=$(known "$dir"); root=${r%%$'\n'*}; inst=${r#*$'\n'}
+	systemctl --user stop "$(unitOf "$inst")"
+	echo "stopped $root. It comes back at the next boot; rrc disable keeps it off."
+}
+
+cmdDisable() {
+	local dir=${1:-.} r root inst
+	r=$(known "$dir"); root=${r%%$'\n'*}; inst=${r#*$'\n'}
+	systemctl --user disable --now --quiet "$(unitOf "$inst")"
+	echo "disabled $root. Its trust and settings stay, so rrc start brings it back as it was."
+}
+
+cmdRemove() {
+	local dir=. worktrees=no force=no
+	while [ $# -gt 0 ]; do
+		case $1 in
+			--worktrees) worktrees=yes ;;
+			--force) force=yes ;;
+			-*) die "remove: unknown option $1" ;;
+			*) dir=$1 ;;
+		esac
+		shift
+	done
+	[ "$force" = yes ] && [ "$worktrees" = no ] && die "remove: --force only means something with --worktrees"
+
+	local root inst unit
+	root=$(repoRoot "$dir"); inst=$(instanceOf "$root"); unit=$(unitOf "$inst")
+	lock
+	systemctl --user disable --now --quiet "$unit" 2>/dev/null || true
+	rm -f "$(envFileOf "$inst")" "$(logFileOf "$inst")"
+	clearTrust "$root"
+	echo "removed the server for $root and cleared its trust"
+
+	# the server's worktrees: Claude puts them in .claude/worktrees/bridge-*
+	local wt branch line dirty unpushed found=no
+	while IFS= read -r line; do
+		case $line in
+			"worktree "*) wt=${line#worktree }; branch=detached ;;
+			"branch refs/heads/"*) branch=${line#branch refs/heads/} ;;
+			"") ;;
+		esac
+		[ -n "$line" ] && continue
+		case ${wt:-} in "$root"/.claude/worktrees/bridge-*) ;; *) wt=""; continue ;; esac
+		found=yes
+		dirty=$(git -C "$wt" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+		unpushed=$(git -C "$wt" rev-list HEAD --not --remotes 2>/dev/null | wc -l | tr -d ' ')
+		printf '  %s  %s, %s uncommitted, %s unpushed' "$wt" "$branch" "$dirty" "$unpushed"
+		if [ "$worktrees" = no ]; then
+			printf '\n'
+		elif [ "$dirty" = 0 ] && [ "$unpushed" = 0 ] || [ "$force" = yes ]; then
+			git -C "$root" worktree remove --force "$wt"
+			case $branch in worktree-bridge-*) git -C "$root" branch -D -q "$branch" 2>/dev/null || true ;; esac
+			printf '  removed\n'
+		else
+			printf '  kept: it has work (--force deletes it anyway)\n'
+		fi
+		wt=""
+	done < <(git -C "$root" worktree list --porcelain; echo)
+	if [ "$found" = no ]; then
+		echo "  no server worktrees"
+	elif [ "$worktrees" = no ]; then
+		echo "  left in place; rrc remove --worktrees deletes those with no uncommitted or unpushed work"
+	fi
+}
+
+cmd=${1:-}
+[ $# -gt 0 ] && shift
+case $cmd in
+	start) cmdStart "$@" ;;
+	list) cmdList ;;
+	stop) cmdStop "$@" ;;
+	disable) cmdDisable "$@" ;;
+	remove) cmdRemove "$@" ;;
+	clone|session|restart-all) die "$cmd is not built yet" ;;
+	-h|--help|help) usage ;;
+	"") usage >&2; exit 2 ;;
+	*) note "rrc: unknown command $cmd"; usage >&2; exit 2 ;;
+esac
