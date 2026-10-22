@@ -436,8 +436,8 @@ hook and the commit guard; `SKILL.md` and the README. Decided while building:
 - `rrc session --name` titles are made one argument: spaces become hyphens.
 - `rrc restart <dir>` restarts one server; the `[rrc]` message from the
   update watcher points at it and at `restart-all`.
-- `rrc teardown` undoes everything in systemd. The kit's `uninstall.sh` has no
-  hook to call it yet; `manifest.sh` defines `pre_uninstall` for when it does.
+- `rrc teardown` undoes everything in systemd. `uninstall.sh` runs it through
+  `manifest.sh`'s `pre_uninstall` before removing anything, since kit v1.2.1.
   The request to the package-kit session was not delivered: that session had
   ended.
 
@@ -449,10 +449,8 @@ status 1, so `Restart=on-failure` retries it), and `integration.sh` passed all
 `integration.sh --app` then passed all 16: in a real server session the
 `SessionStart` hook detached HEAD and the commit guard blocked a commit, and
 a busy server was left running while the orchestrator pane got the `[rrc]`
-message.
+message. The package was then upgraded to kit v1.2.1, whose `uninstall.sh`
+runs `pre_uninstall`, so uninstalling runs `rrc teardown` first.
 
-1. `pre_uninstall`: the package-kit session added it to the kit's
-   `uninstall.sh`, to ship in kit v1.3.0. Once that is released, run the kit's
-   `upgrade-package.sh <package-dir> --apply`; `manifest.sh` needs no change.
-2. Install: `./test/run-tests.sh && ./install.sh --link`, in your own terminal
+1. Install: `./test/run-tests.sh && ./install.sh --link`, in your own terminal
    or with `!`.

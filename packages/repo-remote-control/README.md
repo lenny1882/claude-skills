@@ -128,8 +128,9 @@ results in `DESIGN.md`), any of which an update could change:
     rrc teardown
 
 stops and disables every server, session and the update watcher, and unlinks
-the units. The kit's `uninstall.sh` does not do this yet, so without it the
-units keep running a deleted skill.
+the units. `uninstall.sh` runs it first, before removing anything, and stops
+with nothing removed if it fails, so the units never keep running a deleted
+skill.
 
 ## Tests
 

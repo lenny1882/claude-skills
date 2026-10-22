@@ -48,8 +48,8 @@ REGISTRATIONS=(
 
 # Before uninstalling: every server, session and the update watcher stopped
 # and disabled, and the units unlinked, so nothing keeps running a deleted
-# skill. The kit's uninstall.sh does not call a hook like this yet (asked for
-# on 22 Oct); until it does, run rrc teardown first.
+# skill. uninstall.sh runs this before removing anything (kit v1.2.1), and
+# stops with nothing removed if it fails.
 pre_uninstall() {
   [ -x "$HOME/.local/bin/rrc" ] && "$HOME/.local/bin/rrc" teardown
   return 0
