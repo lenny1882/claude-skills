@@ -82,6 +82,33 @@ Opened 25 Aug 2026, when the package was moved here from `~/.claude/skills`.
     Raised from `maestro-remote-mac` BACKLOG item 82 (17 Sep 2026), where the
     cost landed. The fix belongs here.
 
+17. **~~An empty `FLAVOR` cannot turn the flavour off~~ — fixed in 1.0.0.**
+    `SKILL.md` says `FLAVOR` is "empty for an unflavoured build", but the
+    pre-release `bin/lib.sh:47` defaulted it with `: "${FLAVOR:=dev}"`, and `:=`
+    replaces an empty value as well as an unset one. Measured 21 Oct 2026 on the
+    hand-made installed copy: `FLAVOR= bash bin/start.sh` still launched with
+    `--flavor dev`. 1.0.0 has `: "${FLAVOR=dev}"` (no colon) at `bin/lib.sh:59`.
+
+18. **`start.sh` kills every `flutter run` on the Mac, not just its own.**
+    `start.sh:39` runs `pkill -f frun.py; pkill -f 'flutter_tools.snapshot run'`.
+    The Mac is shared by several sessions and projects, and that pattern matches
+    all of them. 21 Oct 2026: a 5 Oct `flutter run` (`sh -c tail -f
+    /tmp/fr-1824.in | … flutter run`, PID 21129) was found with its flutter
+    process gone and only the parent shell left; whether this pkill did it is
+    unconfirmed. The same day a peer session (HBS-53) and this skill were both
+    launching onto one iPhone 16 Pro, each killing the other's app — "Termination
+    requested by simulator host" in SpringBoard's log at 16:37 and 16:44.
+    The fixed paths make it worse: `bin/lib.sh:69-73` sets `/tmp/frun.py`,
+    `/tmp/frun.in`, `/tmp/frun.log`, `/tmp/frun.err` and `/tmp/frun-shot.png`,
+    one each per Mac (`remote/frun.py:38-39` hard-codes the fifo and log too),
+    so a second session's `start.sh` takes over the first's fifo and log.
+    *Fix:* record the PID `frun.py` starts in a per-device state file and kill
+    only that; key the fifo/log/script paths by UDID (which item 8 needs anyway).
+
+    Items 17 and 18 were raised 21 Oct 2026 in the pre-release copy at
+    `/home/james/claude-sandbox/flutter-hot-reload-mac/BACKLOG.md` and ported
+    here 26 Oct 2026. Line numbers checked against 1.0.0.
+
 ## Scope
 
 14. **Review against rot and bloat, and how much of this should be
