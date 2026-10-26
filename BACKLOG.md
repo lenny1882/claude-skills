@@ -5,7 +5,9 @@ move to that package's own `BACKLOG.md`.
 
 ---
 
-## 1. `/owl` — redo the last answer end to end — **OPEN, raised 26 Oct 2026**
+## 1. `/owl` — redo the last answer end to end — **DONE 26 Oct 2026, raised 26 Oct 2026**
+
+**Built 26 Oct 2026** as `packages/owl`, version 0.1.0, not yet released.
 
 **What.** A skill that redoes the last answer after Claude skipped most of its
 steps. It lists every step in order. For each step it gives where it runs
@@ -21,7 +23,9 @@ sessions across five projects. The memory written to stop this
 (`finish_the_task_dont_ask_about_steps`, in `hugoboss-flutter-runner`) was never
 added to that project's `MEMORY.md` index, so it was never loaded.
 
-## 2. `/again` — re-present the last question set or list in full — **OPEN, raised 26 Oct 2026**
+## 2. `/again` — re-present the last question set or list in full — **DONE 26 Oct 2026, raised 26 Oct 2026**
+
+**Built 26 Oct 2026** as `packages/again`, version 0.1.0, not yet released.
 
 **What.** A skill that gives the last set of questions or list again, complete:
 every item with its context, the current behaviour and the options. No bare

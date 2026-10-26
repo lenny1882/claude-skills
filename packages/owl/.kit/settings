@@ -1,0 +1,7 @@
+kit=1.2.1
+name=owl
+kind=skill
+slug=lenny1882/claude-skills
+monorepo=1
+release=1
+payload=skill lib
