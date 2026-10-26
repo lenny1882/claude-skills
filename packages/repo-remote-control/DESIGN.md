@@ -77,7 +77,7 @@ disconnected. One unexplained failure on 22 Oct may have been that.
   [Service]
   WorkingDirectory=/%I
   ExecStart=%h/.local/bin/claude remote-control --spawn worktree
-  Restart=on-failure
+  Restart=always
   RestartSec=30
 
   [Install]
@@ -178,6 +178,31 @@ the sessions open in it.
   refused server exiting with an error; check that in Docker during the
   build. If it exits 0, fall back to `Restart=always` or to `rrc` stopping and
   starting the unit itself.
+
+  **Changed 26 Oct: `Restart=always`.** The aws-workspace session cut a
+  server's network for 15 minutes (`remote-control-systemd-test.sh
+  offline`). After "disconnected 9m 54s" the server exited with status 0
+  (`Result=success`), so `Restart=on-failure` never restarted it, and it was
+  still down after the network came back. `Restart=always` covers that and
+  still retries a refused server; `systemctl stop`, which `rrc stop` uses, is
+  never followed by a restart. On that exit the server released its
+  worktree locks, removed worktrees without changes, and kept one with
+  uncommitted changes ("kept worktree … · uncommitted changes").
+
+  **Added 26 Oct: `rrc tidy`, as the unit's `ExecStartPre`.** A server killed
+  by a reboot gets no such exit. Its sessions' worktrees stay locked with
+  `claude agent bridge-… (pid N start T)`, naming the dead server, and
+  `git worktree prune` skips them, so every Sunday maintenance reboot would
+  leave a worktree and a `worktree-bridge-*` branch per open session. Before
+  each start, `tidy` releases a lock whose PID isn't running with start time
+  T (field 22 of `/proc/PID/stat`, so a PID reused after the reboot doesn't
+  count), removes a server worktree with no uncommitted changes and no
+  commits that no other branch or remote has, deletes its generated branch,
+  and keeps the rest, unlocked. Another tool's lock is left alone. It logs to
+  `state/logs/tidy.log`, because the unit's output file is emptied for the
+  server. It takes no `rrc` lock: `rrc start` holds that while it waits for
+  this very server. The `-` in `ExecStartPre=-` means a failed tidy never
+  stops the server starting.
 
 ### Session mode
 

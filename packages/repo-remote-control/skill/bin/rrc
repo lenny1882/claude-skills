@@ -20,7 +20,8 @@
 #   new one.
 # - A server started just after another one in the same folder stopped is
 #   refused for about 70 seconds ("already served") and exits. The unit's
-#   Restart=on-failure retries it; rrc start only waits for the URL.
+#   Restart=always retries it (it also brings back a server that exited with
+#   status 0 after ~10 minutes offline); rrc start only waits for the URL.
 # - ~/.claude.json is rewritten by every running claude. Trust goes in through
 #   a temp file and mv, after a backup, and rrc still watches the server's
 #   output for "Workspace not trusted" in case another claude's write undid it.
@@ -73,6 +74,9 @@ usage() {
 		                  watcher, and unlink the units: run before uninstalling
 
 		rrc on-update is run by rrc-update.service when claude is updated.
+		rrc tidy [dir] is run before every server start: it releases worktree
+		locks left by a server that didn't exit cleanly and removes those
+		worktrees when they hold no work (state/logs/tidy.log says what it did).
 
 		dir defaults to the current directory; any directory inside the repo will do.
 		Give people the URL rrc prints, never the environment's name.
@@ -614,16 +618,8 @@ cmdRemove() {
 	clearTrust "$root"
 	echo "removed the server for $root and cleared its trust"
 
-	# the server's worktrees: Claude puts them in .claude/worktrees/bridge-*
-	local wt branch line dirty unpushed found=no
-	while IFS= read -r line; do
-		case $line in
-			"worktree "*) wt=${line#worktree }; branch=detached ;;
-			"branch refs/heads/"*) branch=${line#branch refs/heads/} ;;
-			"") ;;
-		esac
-		[ -n "$line" ] && continue
-		case ${wt:-} in "$root"/.claude/worktrees/bridge-*) ;; *) wt=""; continue ;; esac
+	local wt branch dirty unpushed found=no
+	while IFS=$'\t' read -r wt branch; do
 		found=yes
 		dirty=$(git -C "$wt" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
 		unpushed=$(git -C "$wt" rev-list HEAD --not --remotes 2>/dev/null | wc -l | tr -d ' ')
@@ -637,13 +633,81 @@ cmdRemove() {
 		else
 			printf '  kept: it has work (--force deletes it anyway)\n'
 		fi
-		wt=""
-	done < <(git -C "$root" worktree list --porcelain; echo)
+	done < <(serverWorktrees "$root")
 	if [ "$found" = no ]; then
 		echo "  no server worktrees"
 	elif [ "$worktrees" = no ]; then
 		echo "  left in place; rrc remove --worktrees deletes those with no uncommitted or unpushed work"
 	fi
+}
+
+# The server's worktrees, one "path<TAB>branch" line each (branch "detached"
+# when HEAD is): Claude puts them in .claude/worktrees/bridge-*
+serverWorktrees() {
+	local root=$1 line wt="" branch=detached
+	while IFS= read -r line; do
+		case $line in
+			"worktree "*) wt=${line#worktree }; branch=detached ;;
+			"branch refs/heads/"*) branch=${line#branch refs/heads/} ;;
+		esac
+		[ -n "$line" ] && continue
+		case $wt in "$root"/.claude/worktrees/bridge-*) printf '%s\t%s\n' "$wt" "$branch" ;; esac
+		wt=""
+	done < <(git -C "$root" worktree list --porcelain; echo)
+}
+
+# Run by rrc-server@'s ExecStartPre, before the server starts in the repo.
+# A server that exits cleanly releases its sessions' worktree locks and
+# removes the worktrees with no changes. One killed by a reboot can't: its
+# sessions' worktrees stay locked, each lock naming the dead server
+# ("claude agent bridge-… (pid N start T)"), and git worktree prune skips them
+# (aws-workspace offline and reboot checks, 26 Oct). tidy does what the clean
+# exit would have: it releases a lock whose process is gone, removes a
+# worktree with no uncommitted changes and no commits that no other branch or
+# remote has, deletes its generated branch, and keeps the rest.
+# No rrc lock: rrc start holds it while it waits for this very server.
+cmdTidy() {
+	local root wt branch lockf reason pid start dirty own log
+	root=$(repoRoot "${1:-.}")
+	mkdir -p "$STATE/logs"; log=$STATE/logs/tidy.log
+	while IFS=$'\t' read -r wt branch; do
+		lockf=$(sed -n 's/^gitdir: //p' "$wt/.git" 2>/dev/null)/locked
+		if [ -f "$lockf" ]; then
+			reason=$(cat "$lockf")
+			case $reason in
+				"claude agent "*"(pid "*" start "*")") ;;
+				*) tidied "$wt: kept, locked by something other than a server: $reason"; continue ;;
+			esac
+			pid=${reason##*(pid }; pid=${pid%% *}
+			start=${reason##* start }; start=${start%)}
+			if running "$pid" "$start"; then
+				tidied "$wt: kept, its session is running (pid $pid)"
+				continue
+			fi
+			git -C "$root" worktree unlock "$wt"
+		fi
+		dirty=$(git -C "$wt" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+		own=$(git -C "$wt" rev-list HEAD --not --exclude="$branch" --branches --remotes 2>/dev/null | wc -l | tr -d ' ')
+		if [ "$dirty" = 0 ] && [ "$own" = 0 ]; then
+			if ! git -C "$root" worktree remove "$wt" 2>>"$log"; then
+				tidied "$wt: kept, git worktree remove failed (above)"
+				continue
+			fi
+			case $branch in worktree-bridge-*) git -C "$root" branch -D -q "$branch" 2>/dev/null || true ;; esac
+			tidied "$wt: removed"
+		else
+			tidied "$wt: kept, $dirty uncommitted, $own commits on no other branch"
+		fi
+	done < <(serverWorktrees "$root")
+}
+tidied() { printf '%s %s\n' "$(date '+%F %T')" "$1" | tee -a "$log"; }
+
+# whether process $1 is running and started at $2, in clock ticks since boot
+# (field 22 of /proc/PID/stat, the "start" in a Claude worktree lock); a PID
+# reused after a reboot has a different start
+running() {
+	[ -r "/proc/$1/stat" ] || return 1
+	[ "$(sed 's/.*) //' "/proc/$1/stat" | cut -d' ' -f20)" = "$2" ]
 }
 
 cmd=${1:-}
@@ -659,6 +723,7 @@ case $cmd in
 	restart) cmdRestart "$@" ;;
 	restart-all) cmdRestartAll ;;
 	on-update) cmdOnUpdate ;;
+	tidy) cmdTidy "$@" ;;
 	teardown) cmdTeardown ;;
 	-h|--help|help) usage ;;
 	"") usage >&2; exit 2 ;;

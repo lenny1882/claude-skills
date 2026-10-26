@@ -9,7 +9,14 @@
 # - output goes to a file that is emptied at every start; rrc reads the
 #   environment URL from it, because the URL changes on every restart
 # - a server started just after another one in the same folder stopped is
-#   refused for about 70 seconds and exits; Restart=on-failure retries it
+#   refused for about 70 seconds and exits; Restart=always retries it
+# - after about 10 minutes without a network the server exits with status 0
+#   (aws-workspace offline check, 26 Oct: "disconnected 9m 54s",
+#   Result=success), which Restart=on-failure left down for good.
+#   Restart=always brings it back; rrc stop (systemctl stop) still stops it
+# - a server killed by a reboot leaves its sessions' worktrees locked to its
+#   dead PID; rrc tidy releases those and removes the ones with no work
+#   before each start. The "-": a failed tidy never stops the server
 
 [Unit]
 Description=Claude Remote Control server in /%I
@@ -17,10 +24,11 @@ Description=Claude Remote Control server in /%I
 [Service]
 WorkingDirectory=/%I
 EnvironmentFile=%h/.claude/skills/repo-remote-control/state/repos/%i.env
+ExecStartPre=-%h/.local/bin/rrc tidy /%I
 ExecStart=%h/.local/bin/claude remote-control --spawn worktree $RRC_ARGS
 StandardOutput=truncate:%h/.claude/skills/repo-remote-control/state/logs/%i.log
 StandardError=inherit
-Restart=on-failure
+Restart=always
 RestartSec=30
 
 [Install]

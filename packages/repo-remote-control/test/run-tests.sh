@@ -261,6 +261,54 @@ out=$("$RRC" remove "$WEB" --worktrees --force 2>&1); rc=$?
 [ "$rc" = 0 ] && [ ! -d "$W/bridge-work" ] \
   && ok "remove --worktrees --force deletes the one with work too" || no "remove --worktrees --force deletes the one with work too" "rc=$rc $out"
 
+# tidy: server worktrees as a reboot leaves them, locked to a dead server
+# ("claude agent … (pid N start T)", the format seen in the aws-workspace
+# checks), beside ones that must survive: a running server's, another tool's
+# lock, work, and worktrees that aren't the server's
+TD=$(repo "$TMP/tidy/repo"); TW="$TD/.claude/worktrees"
+dead="pid 4194303 start 1"   # above the default pid_max, so never running
+sleep 300 & live=$!
+livestart=$(sed 's/.*) //' "/proc/$live/stat" | cut -d' ' -f20)
+lockAs() { git -C "$TD" worktree lock --reason "$2" "$TW/$1"; }
+git -C "$TD" worktree add -q --detach "$TW/bridge-stale-clean"; lockAs bridge-stale-clean "claude agent bridge-stale-clean ($dead)"
+git -C "$TD" worktree add -q -b worktree-bridge-stale-gen "$TW/bridge-stale-gen"; lockAs bridge-stale-gen "claude agent bridge-stale-gen ($dead)"
+git -C "$TD" worktree add -q --detach "$TW/bridge-stale-work"; lockAs bridge-stale-work "claude agent bridge-stale-work ($dead)"
+echo wip >"$TW/bridge-stale-work/notes.txt"
+git -C "$TD" worktree add -q -b worktree-bridge-stale-commit "$TW/bridge-stale-commit"; lockAs bridge-stale-commit "claude agent bridge-stale-commit ($dead)"
+git -C "$TW/bridge-stale-commit" commit -q --allow-empty -m "only here"
+git -C "$TD" worktree add -q --detach "$TW/bridge-live"; lockAs bridge-live "claude agent bridge-live (pid $live start $livestart)"
+git -C "$TD" worktree add -q --detach "$TW/bridge-reused"; lockAs bridge-reused "claude agent bridge-reused (pid $live start $((livestart + 1)))"
+git -C "$TD" worktree add -q --detach "$TW/bridge-other"; lockAs bridge-other "someone else's lock"
+git -C "$TD" worktree add -q --detach "$TW/bridge-unlocked-clean"
+git -C "$TD" worktree add -q --detach "$TMP/tidy/not-the-servers"
+git -C "$TD" worktree lock --reason "claude agent x ($dead)" "$TMP/tidy/not-the-servers"
+locked() { [ -f "$(sed -n 's/^gitdir: //p' "$1/.git")/locked" ]; }
+out=$("$RRC" tidy "$TD" 2>&1); rc=$?
+[ "$rc" = 0 ] && [ ! -d "$TW/bridge-stale-clean" ] && [ ! -d "$TW/bridge-stale-gen" ] && [ ! -d "$TW/bridge-reused" ] \
+  && [ ! -d "$TW/bridge-unlocked-clean" ] && ! git -C "$TD" show-ref -q --verify refs/heads/worktree-bridge-stale-gen \
+  && ok "tidy removes clean server worktrees, stale-locked or not, a reused PID's too, and their generated branch" \
+  || no "tidy removes clean server worktrees, stale-locked or not, a reused PID's too, and their generated branch" "rc=$rc $out"
+[ -f "$TW/bridge-stale-work/notes.txt" ] && ! locked "$TW/bridge-stale-work" \
+  && [ -d "$TW/bridge-stale-commit" ] && ! locked "$TW/bridge-stale-commit" \
+  && git -C "$TD" show-ref -q --verify refs/heads/worktree-bridge-stale-commit \
+  && grep -q 'bridge-stale-work: kept, 1 uncommitted, 0 commits' <<<"$out" \
+  && grep -q 'bridge-stale-commit: kept, 0 uncommitted, 1 commits' <<<"$out" \
+  && ok "tidy unlocks stale worktrees with work and keeps them, with their branch" \
+  || no "tidy unlocks stale worktrees with work and keeps them, with their branch" "$out"
+locked "$TW/bridge-live" && locked "$TW/bridge-other" && locked "$TMP/tidy/not-the-servers" \
+  && grep -q "bridge-live: kept, its session is running (pid $live)" <<<"$out" \
+  && grep -q "bridge-other: kept, locked by something other than a server" <<<"$out" \
+  && ! grep -q 'not-the-servers' <<<"$out" \
+  && ok "tidy leaves a running server's worktree, another tool's lock and non-server worktrees alone" \
+  || no "tidy leaves a running server's worktree, another tool's lock and non-server worktrees alone" "$out"
+grep -q 'bridge-stale-clean: removed' "$RRC_STATE/logs/tidy.log" 2>/dev/null \
+  && ok "tidy logs what it did to state/logs/tidy.log" || no "tidy logs what it did to state/logs/tidy.log" "$(cat "$RRC_STATE/logs/tidy.log" 2>&1)"
+kill "$live" 2>/dev/null
+grep -qx 'ExecStartPre=-%h/.local/bin/rrc tidy /%I' "$REPO/skill/systemd/rrc-server@.service" \
+  && grep -qx 'Restart=always' "$REPO/skill/systemd/rrc-server@.service" \
+  && ok "the server unit runs rrc tidy before each start and restarts after any exit" \
+  || no "the server unit runs rrc tidy before each start and restarts after any exit" "$(grep -E '^(ExecStartPre|Restart)=' "$REPO/skill/systemd/rrc-server@.service")"
+
 out=$("$RRC" frobnicate 2>&1); rc=$?
 [ "$rc" = 2 ] && grep -q 'usage: rrc' <<<"$out" && ok "an unknown command prints usage" || no "an unknown command prints usage" "rc=$rc"
 

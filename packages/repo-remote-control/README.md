@@ -113,9 +113,14 @@ results in `DESIGN.md`), any of which an update could change:
   "no environment URL", and `rrc list` shows no URL or session count. Servers
   with no count are never restarted by the watcher.
 - A server started just after another one in the same folder stopped is
-  refused for about 70 seconds and exits. `Restart=on-failure` retries it only
-  if it exits with an error; `confirm.sh refused-exit` checks that, and has not
-  been run yet.
+  refused for about 70 seconds and exits. `Restart=always` retries it.
+- After about 10 minutes without a network, a server exits with status 0.
+  `Restart=always` starts it again; with `Restart=on-failure`, as in 1.0.0,
+  it stayed down until the next reboot or `rrc start`.
+- A server killed by a reboot leaves its sessions' worktrees locked to its
+  dead PID. `rrc tidy` runs before every server start: it releases those
+  locks, removes the worktrees with no uncommitted changes or commits of
+  their own, and keeps the rest. `state/logs/tidy.log` says what it did.
 - `SessionStart` runs in a server session's worktree before its first command.
   If that stops, sessions keep their generated branch, and the guard never
   fires because HEAD is never detached.
