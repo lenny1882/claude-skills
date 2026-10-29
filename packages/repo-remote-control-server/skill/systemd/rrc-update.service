@@ -1,0 +1,10 @@
+# Run by rrc-update.path when the claude binary changes. The pause lets the
+# updater finish writing and relinking before rrcd compares versions.
+
+[Unit]
+Description=Restart idle Remote Control servers after a claude update (repo-remote-control-server)
+
+[Service]
+Type=oneshot
+ExecStartPre=/bin/sleep 10
+ExecStart=%h/.local/bin/rrcd on-update

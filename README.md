@@ -1,8 +1,8 @@
 # claude-skills
 
 Claude Code skills for this machine's workflows: parallel GSD phases in their
-own worktrees, Flutter hot reload on a remote Mac, a Remote Control server per
-repo, and two typed repairs for a bad answer — `/owl` and `/again`.
+own worktrees, Flutter hot reload on a remote Mac, one-off Remote Control sessions and a
+Remote Control server per repo, and two typed repairs for a bad answer — `/owl` and `/again`.
 
 Every package under `packages/` is versioned, released and installed on its
 own. A fault in one says nothing about another, so each can be fixed and
@@ -14,9 +14,10 @@ shipped without touching the rest.
 | --- | --- |
 | [`phase-worktrees`](packages/phase-worktrees/) | One git worktree and branch per GSD phase, so several phases can be executed at once |
 | [`flutter-hot-reload-mac`](packages/flutter-hot-reload-mac/) | Builds a Flutter app on a remote Mac's iOS simulator and hot reloads each local save, returning a screenshot |
-| [`repo-remote-control`](packages/repo-remote-control/) | Runs a Claude Remote Control server per repo as a systemd user unit, so sessions can be opened in that repo from claude.ai or the Claude app |
 | [`owl`](packages/owl/) | `/owl` redoes the last answer end to end when it skipped steps: every step written out, Claude runs what it can, one command left for you |
 | [`again`](packages/again/) | `/again` gives the last question set or list again in full, with every bare reference such as `F7` or `1b` written out |
+| [`repo-remote-control-session`](packages/repo-remote-control-session/) | `rrc session` opens one Claude Remote Control session in a repo, as a systemd user unit, and prints its URL for claude.ai or the Claude app |
+| [`repo-remote-control-server`](packages/repo-remote-control-server/) | `rrcd` runs a Remote Control server per repo as a systemd user unit that survives reboots and claude updates; needs `repo-remote-control-session` |
 <!-- new-package.sh --monorepo adds a row above this line -->
 
 ## Install a package
