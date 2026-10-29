@@ -1,0 +1,317 @@
+#!/usr/bin/env bash
+# rrc: one Claude Remote Control session in a repo, as a systemd user unit.
+#
+# Why this exists: `claude remote-control --spawn session` opens one session
+# reachable from claude.ai, but only in its own directory, and its URL is
+# buried in a redrawing status screen. Starting one by hand means trusting the
+# repo in ~/.claude.json, running it somewhere that outlives the shell, and
+# fishing the URL out of the output. rrc does it the same way every time.
+#
+# It is also the base repo-remote-control-server builds on: rrcd sources this
+# file for the shared parts (finding the repo, trust, the lock, reading the
+# output), so they exist once. Sourced, it defines functions and runs nothing.
+#
+# Things that look simplifiable and are not:
+# - The URL is read from the session's output on every call, never stored.
+# - Before starting, the output file is emptied by rrc itself. Otherwise the
+#   previous run's URL is still in it for a moment and gets reported as the
+#   new one.
+# - ~/.claude.json is rewritten by every running claude. Trust goes in through
+#   a temp file and mv, after a backup, and rrc still watches the output for
+#   "Workspace not trusted" in case another claude's write undid it.
+# - rrc must run outside Claude's sandbox: the sandbox blocks the user bus,
+#   ~/.config/systemd/user and ~/.claude.json. The installer adds "rrc *" to
+#   sandbox.excludedCommands. That entry only matches a call that is rrc and
+#   nothing else: chained, redirected, or run by its full path, it stays
+#   sandboxed and fails.
+
+set -euo pipefail
+
+PROG=rrc
+CLAUDE_DIR=${CLAUDE_DIR:-$HOME/.claude}
+SKILL=${RRC_SKILL_DIR:-$CLAUDE_DIR/skills/repo-remote-control-session}
+STATE=${RRC_STATE:-$SKILL/state}
+CLAUDE_JSON=${RRC_CLAUDE_JSON:-$HOME/.claude.json}
+UNIT_DIR=$HOME/.config/systemd/user
+WAIT=${RRC_WAIT:-120}
+POLL=${RRC_POLL:-1}
+MODES="acceptEdits auto bypassPermissions default dontAsk plan"
+
+usage() {
+	cat <<-'EOF'
+		usage: rrc <command> [options] [dir]
+
+		  session [dir]   one session in the repo: ends when the conversation
+		                  does, never comes back at boot. Prints the repo root,
+		                  then the session's URL
+		      --permission-mode <mode>   (default auto)
+		      --name <title>             the session's title
+		      --allow-unsandboxed        start even though sandbox.enabled is off;
+		                                 only with the user's explicit yes
+		  list            every running session and its URL
+		  teardown        stop every session and unlink the unit: run before
+		                  uninstalling
+
+		dir defaults to the current directory; any directory inside the repo will do.
+		Give people the URL rrc prints, never the environment's name.
+		Servers, which survive reboots, are repo-remote-control-server's: rrcd.
+	EOF
+}
+
+die() { printf '%s: %s\n' "$PROG" "$*" >&2; exit 1; }
+note() { printf '%s\n' "$*" >&2; }
+
+# --------------------------------
+# repos, units and files
+
+# The main checkout's root, also when called from inside one of its worktrees:
+# trust is keyed on the repo root.
+repoRoot() {
+	local dir=$1 common
+	[ -d "$dir" ] || die "no such directory: $dir"
+	common=$(git -C "$dir" rev-parse --git-common-dir 2>/dev/null) \
+		|| die "$dir is not in a git repository"
+	case $common in /*) ;; *) common=$(cd "$dir" && cd "$common" && pwd -P) ;; esac
+	if [ "$(basename "$common")" = .git ]; then
+		dirname "$common"
+	else
+		git -C "$dir" rev-parse --show-toplevel
+	fi
+}
+
+instanceOf() { systemd-escape --path "$1"; }
+sessionUnitOf() { printf 'rrc-session@%s.service' "$1"; }
+sessionEnvOf() { printf '%s/sessions/%s.env' "$STATE" "$1"; }
+sessionLogOf() { printf '%s/logs/%s.session.log' "$STATE" "$1"; }
+# repo-remote-control-server's unit, which Claude refuses a session beside
+serverUnitOf() { printf 'rrc-server@%s.service' "$1"; }
+
+# KEY=value or KEY="value" from a file rrc wrote, read without sourcing it
+valueIn() { # file key
+	[ -f "$1" ] || return 0
+	sed -n "s/^$2=//p" "$1" | tail -1 | sed 's/^"//; s/"$//'
+}
+
+# The unit template lives with the skill; systemd only reads units from
+# ~/.config/systemd/user, so it is linked there. Linked rather than copied so
+# an upgrade of the skill is picked up by the next daemon-reload.
+ensureUnits() {
+	local src=$SKILL/systemd/rrc-session@.service dst=$UNIT_DIR/rrc-session@.service
+	[ -f "$src" ] || die "the repo-remote-control-session skill is not installed: no $src"
+	if [ "$(readlink "$dst" 2>/dev/null)" != "$src" ]; then
+		mkdir -p "$UNIT_DIR"
+		ln -sfn "$src" "$dst"
+	fi
+	systemctl --user daemon-reload
+}
+
+# one rrc at a time changes state or ~/.claude.json
+lock() {
+	mkdir -p "$STATE"
+	exec 9>"$STATE/.lock"
+	command -v flock >/dev/null 2>&1 || return 0
+	flock -w 60 9 || die "another $PROG has held $STATE/.lock for a minute"
+}
+
+# --------------------------------
+# the sandbox and trust
+
+sandboxOn() {
+	local f
+	for f in /etc/claude-code/managed-settings.json "$CLAUDE_DIR/settings.json"; do
+		[ -s "$f" ] && jq -e '.sandbox.enabled == true' "$f" >/dev/null 2>&1 && return 0
+	done
+	return 1
+}
+
+# exit 3, before anything changes, so the calling Claude stops and asks
+needSandbox() { # what happens to the choice
+	sandboxOn && return 0
+	note "$PROG: the sandbox is off: sandbox.enabled is not true in $CLAUDE_DIR/settings.json."
+	note "Sessions started this way would run commands unsandboxed. Ask the user. Only if they say yes,"
+	note "run it again with --allow-unsandboxed; $1"
+	exit 3
+}
+
+trusted() { jq -e --arg p "$1" '.projects[$p].hasTrustDialogAccepted == true' "$CLAUDE_JSON" >/dev/null 2>&1; }
+
+# Back up, then jq into a temp file next to it and mv over it, so a reader
+# never sees half a file and the window for losing another claude's write is
+# as short as it can be. The last five backups are kept.
+editClaudeJson() { # filter, then jq args
+	local filter=$1 tmp b; shift
+	[ -s "$CLAUDE_JSON" ] || die "$CLAUDE_JSON not found: run claude once first"
+	mkdir -p "$STATE/backups"
+	b="$STATE/backups/claude.json.$(date +%Y%m%d-%H%M%S).$$"
+	cp -p "$CLAUDE_JSON" "$b"
+	# shellcheck disable=SC2012
+	ls -1t "$STATE/backups"/claude.json.* | tail -n +6 | xargs -r rm -f
+	tmp=$(mktemp "$CLAUDE_JSON.rrc.XXXXXX")
+	if jq "$@" "$filter" "$CLAUDE_JSON" >"$tmp" 2>/dev/null && [ -s "$tmp" ]; then
+		chmod --reference="$CLAUDE_JSON" "$tmp" 2>/dev/null || true
+		mv "$tmp" "$CLAUDE_JSON"
+	else
+		rm -f "$tmp"
+		die "could not update $CLAUDE_JSON; it is unchanged (backup: $b)"
+	fi
+}
+
+setTrust() {
+	trusted "$1" && return 0
+	editClaudeJson '.projects //= {} | .projects[$p] //= {} | .projects[$p].hasTrustDialogAccepted = true' --arg p "$1"
+}
+
+clearTrust() {
+	jq -e --arg p "$1" '.projects[$p] // {} | has("hasTrustDialogAccepted")' "$CLAUDE_JSON" >/dev/null 2>&1 || return 0
+	editClaudeJson 'del(.projects[$p].hasTrustDialogAccepted)' --arg p "$1"
+}
+
+# --------------------------------
+# reading the output
+
+# escape codes out: CSI, OSC (hyperlinks), charset and single-character ones
+plain() {
+	[ -f "$1" ] || return 0
+	sed -E 's/\x1b\[[0-9;?<>=]*[ -\/]*[@-~]//g; s/\x1b\][^\x07\x1b]*(\x07|\x1b\\)//g; s/\x1b[()][A-Z0-9]//g; s/\x1b[=>78DEHMc]//g; s/\r/\n/g' "$1"
+}
+urlIn() { plain "$1" | grep -o 'https://claude\.ai/code?environment=env_[A-Za-z0-9_-]*' | tail -1 || true; }
+sessionUrlIn() { plain "$1" | grep -o 'https://claude\.ai/code/session_[A-Za-z0-9_-]*' | tail -1 || true; }
+sessionsIn() { plain "$1" | grep -o 'Capacity: [0-9]*/[0-9]*' | tail -1 | sed 's/^Capacity: //' || true; }
+lastErrorIn() { plain "$1" | grep -E '^[[:space:]]*Error:' | tail -1 | sed -E 's/^[[:space:]]+//' || true; }
+
+# empty the output, then start: see the header for why rrc empties it itself
+startFresh() { # unit log
+	systemctl --user stop "$1" >/dev/null 2>&1 || true
+	: >"$2"
+	systemctl --user start "$1"
+}
+
+waitForUrl() { # unit log root [extractor]
+	local unit=$1 log=$2 root=$3 find=${4:-urlIn} url err end retried=0 told=0
+	end=$((SECONDS + WAIT))
+	while :; do
+		url=$("$find" "$log")
+		[ -n "$url" ] && { printf '%s\n' "$url"; return 0; }
+		if [ "$retried" = 0 ] && plain "$log" | grep -q 'Workspace not trusted'; then
+			note "  Claude says the repo is not trusted; another claude may have rewritten $CLAUDE_JSON. Setting it again and restarting."
+			setTrust "$root"
+			startFresh "$unit" "$log"
+			retried=1
+		elif [ "$told" = 0 ] && plain "$log" | grep -q 'already served'; then
+			note "  the previous server in this folder is still registered. systemd retries every 30 seconds; it clears in about 70."
+			told=1
+		fi
+		if systemctl --user is-failed --quiet "$unit"; then
+			err=$(lastErrorIn "$log")
+			case $err in *"already served"*)
+				err="$err (a server in this folder stopped less than about 70 seconds ago, or is still running: try again in a minute)" ;;
+			esac
+			die "$unit failed. Last error: ${err:-none}. Output: $log"
+		fi
+		if [ "$SECONDS" -ge "$end" ]; then
+			err=$(lastErrorIn "$log")
+			die "no URL after ${WAIT}s. Last error: ${err:-none}. Output: $log"
+		fi
+		sleep "$POLL"
+	done
+}
+
+# --------------------------------
+# commands
+
+cmdSession() {
+	local dir=. mode=auto name="" allow=no
+	while [ $# -gt 0 ]; do
+		case $1 in
+			--permission-mode) mode=${2:-}; shift ;;
+			--permission-mode=*) mode=${1#*=} ;;
+			--name) name=${2:-}; shift ;;
+			--name=*) name=${1#*=} ;;
+			--allow-unsandboxed) allow=yes ;;
+			-*) die "session: unknown option $1" ;;
+			*) dir=$1 ;;
+		esac
+		shift
+	done
+	case " $MODES " in *" $mode "*) ;; *) die "session: --permission-mode must be one of: $MODES" ;; esac
+	# one argument each: systemd splits RRC_ARGS on whitespace
+	name=$(printf '%s' "$name" | tr -s '[:space:]' '-' | sed 's/^-//; s/-$//')
+
+	local root inst unit env log url
+	root=$(repoRoot "$dir"); inst=$(instanceOf "$root")
+	unit=$(sessionUnitOf "$inst"); env=$(sessionEnvOf "$inst"); log=$(sessionLogOf "$inst")
+	lock
+
+	# Claude refuses a session beside a server in the same folder. The server
+	# is repo-remote-control-server's, which knows its own URL.
+	if systemctl --user is-active --quiet "$(serverUnitOf "$inst")"; then
+		url=$(command -v rrcd >/dev/null 2>&1 && rrcd url "$root" 2>/dev/null || true)
+		die "$root has a server, and Claude refuses a single session beside it. Open a new session from the server's URL instead: ${url:-run rrcd list for it}"
+	fi
+	if systemctl --user is-active --quiet "$unit"; then
+		url=$(sessionUrlIn "$log")
+		[ -n "$url" ] || url=$(waitForUrl "$unit" "$log" "$root" sessionUrlIn)
+		note "a session is already running in $root; this is its URL"
+		printf '%s\n%s\n' "$root" "$url"
+		return 0
+	fi
+	[ "$allow" = yes ] || needSandbox "it applies to this one session."
+
+	local args="--permission-mode $mode"
+	[ -n "$name" ] && args+=" --name $name"
+	mkdir -p "$STATE/sessions" "$STATE/logs"
+	printf '# written by rrc session\nRRC_ROOT="%s"\nRRC_ARGS="%s"\n' "$root" "$args" >"$env.tmp" && mv "$env.tmp" "$env"
+	setTrust "$root"
+	ensureUnits
+	startFresh "$unit" "$log"
+	url=$(waitForUrl "$unit" "$log" "$root" sessionUrlIn)
+	printf '%s\n%s\n' "$root" "$url"
+	note "one session: it ends when the conversation does, and never comes back at boot"
+}
+
+cmdList() {
+	local s inst any=no url
+	shopt -s nullglob
+	for s in "$STATE"/sessions/*.env; do
+		inst=$(basename "$s" .env)
+		systemctl --user is-active --quiet "$(sessionUnitOf "$inst")" || continue
+		any=yes
+		printf '%s\n  one session, running\n' "$(valueIn "$s" RRC_ROOT)"
+		url=$(sessionUrlIn "$(sessionLogOf "$inst")")
+		[ -n "$url" ] && printf '  %s\n' "$url"
+	done
+	[ "$any" = yes ] || echo "no session is running; open one with: rrc session <dir>"
+	return 0
+}
+
+# Undo what rrc set up in systemd. The kit's uninstall.sh cannot do this
+# itself, so manifest.sh's pre_uninstall runs it first; state/ stays until
+# uninstall removes it.
+cmdTeardown() {
+	local u
+	shopt -s nullglob
+	for u in "$STATE"/sessions/*.env; do
+		systemctl --user stop "$(sessionUnitOf "$(basename "$u" .env)")" 2>/dev/null || true
+	done
+	# a failed unit stays listed after its file is gone, until this
+	systemctl --user reset-failed 'rrc-session@*' 2>/dev/null || true
+	rm -f "$UNIT_DIR/rrc-session@.service"
+	systemctl --user daemon-reload 2>/dev/null || true
+	echo "stopped every session and unlinked the session unit"
+}
+
+main() {
+	local cmd=${1:-}
+	[ $# -gt 0 ] && shift
+	case $cmd in
+		session) cmdSession "$@" ;;
+		list) cmdList ;;
+		teardown) cmdTeardown ;;
+		-h|--help|help) usage ;;
+		"") usage >&2; exit 2 ;;
+		*) note "rrc: unknown command $cmd"; usage >&2; exit 2 ;;
+	esac
+}
+
+# run, unless sourced by rrcd for the functions above
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then main "$@"; fi

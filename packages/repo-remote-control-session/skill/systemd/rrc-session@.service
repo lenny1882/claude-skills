@@ -1,0 +1,19 @@
+# One Claude Remote Control session in a repo, started by `rrc session`: a
+# one-off, not a server. `--spawn session` opens a single session and exits
+# when it completes (spawn-session check, 22 Oct), and with no [Install]
+# section the unit never comes back at boot. Restart=no: a session that has
+# ended is not reopened.
+#
+# Claude refuses this in a folder that already has a server, so rrc session
+# checks for one first and hands out the server's URL instead.
+
+[Unit]
+Description=One Claude Remote Control session in /%I
+
+[Service]
+WorkingDirectory=/%I
+EnvironmentFile=%h/.claude/skills/repo-remote-control-session/state/sessions/%i.env
+ExecStart=%h/.local/bin/claude remote-control --spawn session $RRC_ARGS
+StandardOutput=truncate:%h/.claude/skills/repo-remote-control-session/state/logs/%i.session.log
+StandardError=inherit
+Restart=no
