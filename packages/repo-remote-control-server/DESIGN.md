@@ -22,9 +22,11 @@ and linger with them.
   restart, restart-all, stop, disable, remove, tidy, on-update and teardown,
   the `rrc-server@` and `rrc-update` units, and both hooks. The unit names
   did not change, so a migration only moves the state directory.
-- **Shared code once.** `rrcd` sources the `rrc` on `PATH` for finding the
-  repo, trust, the lock and reading the output; `rrc` runs nothing when it is
-  sourced. The server install's `verify_probe` fails without it. `rrc session`
+- **Shared code once.** Finding the repo, trust, the lock and reading the
+  output are in the session package's `skill/lib/rrc-lib.sh`, which `rrc`
+  and `rrcd` both source. `rrcd` loads it from the session skill's directory,
+  not `PATH`, and checks `RRC_LIB_VERSION` (changed 2 Nov; see item 2 below).
+  The server install's `verify_probe` fails without it. `rrc session`
   asks `rrcd url` for the server's URL when it is refused beside one.
 - **Each install adds its own exclusions.** An entry with no wildcard matches
   only the bare command, so `["rrc"]` (planned below, and what the 22 Oct
@@ -66,6 +68,20 @@ to the user one at a time yet; each stays open until it has.
    command. Built: `rrcd` sources it as a library, so the two must stay in
    step function by function, and an `rrc` without the sourcing guard (1.1.0
    from `repo-remote-control`) runs its `main` inside `rrcd`.
+
+   **Decided 2 Nov: a library of its own.** Why it was built differently: the
+   shared parts were internal functions, and calling `rrc` meant adding about
+   15 subcommands; sourcing `rrc` avoided that work. Calling `rrc` was then
+   ruled out on its own costs: `"rrc *"` would let any Claude session run
+   those subcommands unsandboxed, trust edits included, and the lock `rrcd
+   start` holds across several steps cannot be held across separate `rrc`
+   processes. Sourcing `rrc` with a version check was ruled out because the
+   old guardless `rrc` runs its commands while being sourced, before any
+   check after it. Built: the shared functions and settings are in the
+   session package's `skill/lib/rrc-lib.sh`, which defines things and runs
+   nothing. `rrc` sources it from its own skill; `rrcd` from the session
+   skill's directory, never `PATH`, then refuses any `RRC_LIB_VERSION` but the
+   one it needs. `RRCD_RRC` became `RRCD_RRC_LIB`.
 3. **`rrcd url` and its `rrcd url *` exclusion.** Not discussed. Added so
    `rrc session` can put the server's URL in its "has a server" refusal.
 4. **Separate locks.** Not discussed. Each package locks its own

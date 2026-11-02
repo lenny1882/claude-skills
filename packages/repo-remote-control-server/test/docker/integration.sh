@@ -91,7 +91,7 @@ mkdir -p "$RESULTS"
 echo "  claude $(asDev 'claude --version' | head -1)" >>"$RESULTS/integration.txt"
 
 echo "==> installing both packages into the box"
-# the session package first: rrcd sources its rrc, and the server install
+# the session package first: rrcd sources its rrc-lib.sh, and the server install
 # fails without it. The installers add the sandbox exclusions themselves.
 asDev 'rm -rf ~/pkg ~/session-pkg && mkdir -p ~/pkg ~/session-pkg'
 tar -C "$SESSION_PKG" --exclude=.claude --exclude=.mcp.json -cf - . \

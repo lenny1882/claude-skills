@@ -105,9 +105,10 @@ first, then install this one. Only the old uninstaller knows the old names.
   `~/.config/systemd/user` by the first `rrc session`. It has no `[Install]`
   section and `Restart=no`, so a session never comes back.
 - Everything `rrc` writes is in the skill's `state/`, which reinstalls keep.
-- `rrc` is also a library: `rrcd`, from `repo-remote-control-server`, sources
-  it for finding the repo, trust, the lock and reading the output. Sourced, it
-  defines functions and runs nothing.
+- The code for finding the repo, trust, the lock and reading the output is in
+  `skill/lib/rrc-lib.sh`. `rrc` sources it, and so does `rrcd`, from
+  `repo-remote-control-server`, which loads it from this skill's directory
+  and checks its `RRC_LIB_VERSION`. Loading it only defines functions.
 
 It relies on Claude Code behaviour checked in Docker (see
 `repo-remote-control-server`'s `DESIGN.md`), any of which an update could
