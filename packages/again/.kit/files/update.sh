@@ -111,10 +111,51 @@ say "   downloading $TARBALL_NAME (v$latest)"
 curl -fsSL -o "$tmp/$TARBALL_NAME" "$asset_url" \
   || die "Could not download $asset_url"
 
+# pre_update and post_update come from the new release's manifest.sh, which
+# can know every version before it; the installed one cannot know what comes
+# next. Both get the current and the new version. They are skipped with
+# --dry-run and when KIT_SKIP_MACHINE_HOOKS=1, as test harnesses set it.
+mkdir -p "$tmp/new"
+tar -xzf "$tmp/$TARBALL_NAME" -C "$tmp/new" --strip-components=1 \
+  || die "Could not unpack $TARBALL_NAME"
+[ -f "$tmp/new/manifest.sh" ] || die "$TARBALL_NAME has no manifest.sh"
+export CLAUDE_DIR="${CLAUDE_DIR:-$HOME/.claude}"
+manifest_has() { ( FILES=(); DIRS=(); STATE_DIRS=(); REGISTRATIONS=(); . "$1" >/dev/null 2>&1; declare -F "$2" >/dev/null ); }
+manifest_run() { local m=$1 h=$2; shift 2; ( FILES=(); DIRS=(); STATE_DIRS=(); REGISTRATIONS=(); . "$m"; "$h" "$@" ); }
+run_hooks=1
+case " ${PASSTHROUGH[*]-} " in *" --dry-run "*) run_hooks=0 ;; esac
+
+if manifest_has "$tmp/new/manifest.sh" pre_update; then
+  if [ "$run_hooks" -eq 0 ]; then say "   pre_update skipped (--dry-run)"
+  elif [ "${KIT_SKIP_MACHINE_HOOKS:-0}" = 1 ]; then say "   pre_update skipped (KIT_SKIP_MACHINE_HOOKS=1)"
+  elif manifest_run "$tmp/new/manifest.sh" pre_update "$CURRENT" "$latest"; then say "   pre_update ok"
+  else die "pre_update in the new release's manifest.sh failed — nothing changed, still at v$CURRENT."; fi
+fi
+
 say "   extracting into $REPO"
-tar -xzf "$tmp/$TARBALL_NAME" -C "$REPO" --strip-components=1
+if ! tar -xzf "$tmp/$TARBALL_NAME" -C "$REPO" --strip-components=1; then
+  # pre_update may have stopped services, and install.sh will not run to put
+  # them back, so install_failed is called here instead.
+  if manifest_has "$tmp/new/manifest.sh" install_failed; then
+    if [ "$run_hooks" -eq 0 ]; then say "   install_failed skipped (--dry-run)"
+    elif [ "${KIT_SKIP_MACHINE_HOOKS:-0}" = 1 ]; then say "   install_failed skipped (KIT_SKIP_MACHINE_HOOKS=1)"
+    elif manifest_run "$tmp/new/manifest.sh" install_failed reinstall "unpacking v$latest failed"; then say "   install_failed ok"
+    else say "   install_failed in the new release's manifest.sh failed too"; fi
+  fi
+  die "Unpacking v$latest into $REPO failed — $REPO may be part old, part new. Re-run ./update.sh."
+fi
 
 say "   now at v$latest"
 say
 say "== Re-running the installer"
-"$REPO/install.sh" "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}"
+"$REPO/install.sh" "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}" \
+  || die "install.sh failed after updating to v$latest — post_update not run."
+
+if manifest_has "$REPO/manifest.sh" post_update; then
+  say
+  say "== After updating"
+  if [ "$run_hooks" -eq 0 ]; then say "   post_update skipped (--dry-run)"
+  elif [ "${KIT_SKIP_MACHINE_HOOKS:-0}" = 1 ]; then say "   post_update skipped (KIT_SKIP_MACHINE_HOOKS=1)"
+  elif manifest_run "$REPO/manifest.sh" post_update "$CURRENT" "$latest"; then say "   post_update ok"
+  else die "post_update in manifest.sh failed — v$latest is installed, but the step after it is not done."; fi
+fi

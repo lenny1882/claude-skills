@@ -53,6 +53,15 @@ to the user one at a time yet; each stays open until it has.
    step (`verify_probe` also runs in the tests' throwaway-`HOME` installs,
    and `settings_merge` runs on `--dry-run`). A Claude-run `rrcd start`
    turns linger on, and the user learns of it from one line of output.
+
+   **Decided 2 Nov: the installer, as agreed.** Checking only and leaving
+   the user to run `enable-linger` was ruled out: on a remote box nothing
+   starts at boot until someone logs in. Built on kit 1.3.0, which added a
+   `post_install` hook point, skipped on `--dry-run` and when
+   `KIT_SKIP_MACHINE_HOOKS=1` (the tests set it). `manifest.sh`'s
+   `post_install` turns linger on, says so, and fails the install if it
+   can't; `ensureLinger` is gone from `rrcd`. Kit 1.3.0 also skips
+   `pre_uninstall` in the tests, so they call `strip_excluded` on its own.
 2. **`rrcd` sources `rrc`.** Agreed: `rrcd` calls `rrc` on `PATH` as a
    command. Built: `rrcd` sources it as a library, so the two must stay in
    step function by function, and an `rrc` without the sourcing guard (1.1.0

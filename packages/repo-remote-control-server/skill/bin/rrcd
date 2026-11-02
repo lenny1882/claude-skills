@@ -24,7 +24,7 @@
 #   Restart=always retries it (it also brings back a server that exited with
 #   status 0 after ~10 minutes offline); rrcd start only waits for the URL.
 # - Servers run from boot only with linger on: without it systemd stops every
-#   user unit when the last login ends. The first rrcd start turns it on.
+#   user unit when the last login ends. The installer turns it on.
 # - rrcd must run outside Claude's sandbox: the sandbox blocks the user bus,
 #   ~/.config/systemd/user and ~/.claude.json. The installer adds one
 #   sandbox.excludedCommands entry per subcommand Claude may run (start,
@@ -118,22 +118,6 @@ ensureUnits() {
 	systemctl --user daemon-reload
 	systemctl --user is-enabled --quiet rrc-update.path 2>/dev/null \
 		|| systemctl --user enable --now --quiet rrc-update.path
-	ensureLinger
-}
-
-# Without linger the user's systemd instance stops when the last login ends,
-# and every server with it; with it, servers start at boot with nobody logged
-# in. Done here rather than by the installer, which has no step for it.
-ensureLinger() {
-	local user
-	user=$(id -un)
-	[ "$(loginctl show-user "$user" -p Linger --value 2>/dev/null)" = yes ] && return 0
-	if loginctl enable-linger "$user" 2>/dev/null; then
-		note "turned on linger for $user: servers now start at boot and keep running after you log out"
-	else
-		note "warning: linger is off and could not be turned on, so servers stop when you log out."
-		note "  Run in your own terminal: loginctl enable-linger $user"
-	fi
 }
 
 # the claude binary a running unit was started from

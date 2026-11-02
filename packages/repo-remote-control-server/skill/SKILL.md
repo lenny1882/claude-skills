@@ -77,9 +77,6 @@ first, and ask the user before running one on a server that has any.
   seconds ago, or one is still running. `rrcd start` waits it out on its own.
 - **"no CLONE_BASE is set".** A slug needs a clone host for this machine.
   Ask the user for it, or for the full URL; do not guess a host.
-- **"linger is off and could not be turned on".** Servers will stop when the
-  user logs out. Give them `loginctl enable-linger <user>` to run in their own
-  terminal.
 
 ## "[rrcd]" messages
 

@@ -43,7 +43,11 @@ cp "$XD/settings.json" "$TMP/before"
 CLAUDE_DIR="$XD" "$REPO/install.sh" --yes >/dev/null 2>&1
 cmp -s "$TMP/before" "$XD/settings.json" \
   && ok "a second install leaves settings.json byte-identical" || no "a second install leaves settings.json byte-identical" "$(diff "$TMP/before" "$XD/settings.json")"
+# The exclusions come out in pre_uninstall, which the tests' uninstalls skip
+# (KIT_SKIP_MACHINE_HOOKS=1): it also runs rrcd teardown, against the real
+# systemd. So strip_excluded is called here on its own.
 CLAUDE_DIR="$XD" "$REPO/uninstall.sh" --yes >"$TMP/out" 2>&1
+(CLAUDE_DIR="$XD"; . "$REPO/manifest.sh"; strip_excluded) >>"$TMP/out" 2>&1
 jq -e '.sandbox.excludedCommands == ["rrc *"] and .sandbox.network.allowedDomains == ["example.com"] and (.hooks // {} | tostring | test("repo-remote-control-server") | not)' "$XD/settings.json" >/dev/null \
   && ok "uninstall removes its exclusions and hooks, and keeps the session package's \"rrc *\"" \
   || no "uninstall removes its exclusions and hooks, and keeps the session package's \"rrc *\"" "$(cat "$XD/settings.json") $(tail -5 "$TMP/out")"
@@ -135,6 +139,24 @@ case $1 in
 esac
 EOF
 chmod +x "$STUB/bin/loginctl"
+
+# post_install turns linger on. The tests' installs skip it
+# (KIT_SKIP_MACHINE_HOOKS=1), so it is called here on its own, against the
+# stand-in loginctl.
+out=$(. "$REPO/manifest.sh"; post_install install 2>&1); rc=$?
+[ "$rc" = 0 ] && grep -qx "enable-linger $(id -un)" "$STUB/loginctl" && grep -q 'turned on linger' <<<"$out" \
+  && ok "post_install turns linger on, and says so" || no "post_install turns linger on, and says so" "rc=$rc $out $(cat "$STUB/loginctl" 2>&1)"
+lines=$(wc -l <"$STUB/loginctl")
+out=$(. "$REPO/manifest.sh"; post_install reinstall 2>&1); rc=$?
+[ "$rc" = 0 ] && [ -z "$out" ] && ! tail -n +"$((lines + 1))" "$STUB/loginctl" | grep -q enable-linger \
+  && ok "with linger already on, a reinstall leaves it alone and says nothing" \
+  || no "with linger already on, a reinstall leaves it alone and says nothing" "rc=$rc $out $(cat "$STUB/loginctl")"
+rm -f "$STUB/linger"
+out=$(. "$REPO/manifest.sh"; STUB_LINGER_FAIL=1 post_install install 2>&1); rc=$?
+[ "$rc" != 0 ] && grep -q "loginctl enable-linger $(id -un)" <<<"$out" \
+  && ok "when linger can't be turned on, post_install fails and gives the command" \
+  || no "when linger can't be turned on, post_install fails and gives the command" "rc=$rc $out"
+rm -f "$STUB/linger" "$STUB/loginctl"
 fresh() { rm -rf "$STUB/units" "$STUB/calls" "$STUB"/output*; }
 newcalls() { tail -n +"$(( ${1:-0} + 1 ))" "$STUB/calls" 2>/dev/null; }
 ncalls() { wc -l <"$STUB/calls" 2>/dev/null || echo 0; }
@@ -183,12 +205,8 @@ jq -e --arg p "$WEB" '.projects[$p].hasTrustDialogAccepted == true and .numStart
   && ok "the unit template is linked into ~/.config/systemd/user" || no "the unit template is linked into ~/.config/systemd/user" "$(ls -l "$HOME/.config/systemd/user" 2>&1)"
 grep -qF -- "--user enable --quiet $UNIT" "$STUB/calls" && grep -qF -- "--user start $UNIT" "$STUB/calls" \
   && ok "the server is enabled and started" || no "the server is enabled and started" "$(cat "$STUB/calls")"
-grep -qx "enable-linger $(id -un)" "$STUB/loginctl" 2>/dev/null && grep -q 'turned on linger' "$TMP/err" \
-  && ok "the first start turns linger on, and says so" || no "the first start turns linger on, and says so" "$(cat "$STUB/loginctl" 2>&1) $(cat "$TMP/err")"
-lines=$(wc -l <"$STUB/loginctl")
-"$RRC" start "$WEB" >/dev/null 2>&1
-! tail -n +"$((lines + 1))" "$STUB/loginctl" | grep -q enable-linger \
-  && ok "with linger already on, start leaves it alone" || no "with linger already on, start leaves it alone" "$(cat "$STUB/loginctl")"
+! grep -q enable-linger "$STUB/loginctl" 2>/dev/null \
+  && ok "start leaves linger alone: the installer turns it on" || no "start leaves linger alone: the installer turns it on" "$(cat "$STUB/loginctl")"
 
 n=$(ncalls)
 out=$("$RRC" start "$WEB" 2>/dev/null); rc=$?

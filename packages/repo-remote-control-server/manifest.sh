@@ -63,6 +63,22 @@ REGISTRATIONS=(
   "sandbox.excludedCommands: ${EXCLUDED[*]}"
 )
 
+# Without linger the user's systemd instance stops when the last login ends,
+# and every server with it; with it, servers start at boot with nobody logged
+# in, which is the point on a remote box. Done here, once, where the user sees
+# it, not by rrcd start, which Claude runs. Already on: nothing to do.
+post_install() {
+  local user
+  user=$(id -un)
+  [ "$(loginctl show-user "$user" -p Linger --value 2>/dev/null)" = yes ] && return 0
+  if loginctl enable-linger "$user"; then
+    printf '  ok    turned on linger for %s: servers start at boot and keep running after logout\n' "$user"
+  else
+    printf '  warn  could not turn on linger, so servers stop when you log out. Run: loginctl enable-linger %s\n' "$user"
+    return 1
+  fi
+}
+
 # Before uninstalling: every server and the update watcher stopped and
 # disabled, and the units unlinked, so nothing keeps running a deleted skill.
 # uninstall.sh runs this before removing anything, and stops with nothing

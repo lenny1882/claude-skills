@@ -59,6 +59,57 @@ case "$PKG" in
           warn "Rename it." ;;
 esac
 
+# pre_install and post_install are for changes outside $HOME — stopping the
+# package's systemd user services before their files are replaced, then
+# loginctl enable-linger and starting them again. Both get MODE as $1:
+# "install" when none of this package's files were there, "reinstall" when
+# some were (an update, or the same version run again). A dry run never runs
+# either. Test harnesses set KIT_SKIP_MACHINE_HOOKS=1, because their installs
+# go into a throwaway HOME while these hooks change the real machine.
+MODE=install
+for entry in ${FILES[@]+"${FILES[@]}"} ${DIRS[@]+"${DIRS[@]}"}; do
+  if [ -e "${entry#*:}" ] || [ -L "${entry#*:}" ]; then MODE=reinstall; break; fi
+done
+
+# install_failed runs when the install stops after pre_install — a failing
+# post_install or verify_probe, a missing file, settings.json that will not
+# parse, or any other error. It gets MODE and the reason, so a package can
+# restart the services pre_install stopped instead of leaving them down.
+# Nothing has changed before this point, so an earlier stop does not call it.
+REASON=""; ARMED=0
+on_exit() {
+  local rc=$1
+  trap - EXIT
+  if [ "$rc" -ne 0 ] && [ "$ARMED" -eq 1 ] && declare -F install_failed >/dev/null; then
+    step "After a failed install"
+    if [ "${KIT_SKIP_MACHINE_HOOKS:-0}" = 1 ]; then
+      ok "install_failed skipped (KIT_SKIP_MACHINE_HOOKS=1)"
+    elif install_failed "$MODE" "${REASON:-install.sh exited with status $rc}"; then
+      ok "install_failed"
+    else
+      warn "install_failed in manifest.sh failed too"
+    fi
+  fi
+  exit "$rc"
+}
+trap 'on_exit $?' EXIT
+
+if [ "$DRY" -eq 1 ]; then
+  for h in pre_install post_install; do
+    declare -F "$h" >/dev/null && ok "$h skipped (dry run)"
+  done
+elif declare -F pre_install >/dev/null; then
+  step "Before installing"
+  if [ "${KIT_SKIP_MACHINE_HOOKS:-0}" = 1 ]; then
+    ok "pre_install skipped (KIT_SKIP_MACHINE_HOOKS=1)"
+  elif pre_install "$MODE"; then
+    ok "pre_install"
+  else
+    say "  pre_install in manifest.sh failed — nothing installed."; exit 1
+  fi
+fi
+[ "$DRY" -eq 1 ] || ARMED=1
+
 # A skill keeps its state in state/ inside its installed directory. The rm -rf
 # below would delete it on every install and upgrade, so it is set aside first
 # and put back after. With --link the directory is the checkout's and state/
@@ -95,11 +146,32 @@ if [ "$DRY" -eq 0 ]; then
   fi
 fi
 
-if declare -F settings_merge >/dev/null; then
+# A package with releases registers a SessionStart entry that shows the
+# release notice the last check found and starts the next check in the
+# background (lib/update-check.sh session-start). UPDATE_NOTICE=0 in
+# manifest.sh leaves it out.
+NOTICE_CMD="~/.local/share/$PKG/update-check.sh session-start"
+NOTICE=0
+[ -f "$REPO/lib/update-check.sh" ] && [ "${UPDATE_NOTICE:-1}" != 0 ] && NOTICE=1
+add_notice() {
+  if [ "$NOTICE" -eq 1 ]; then
+    jq --arg cmd "$NOTICE_CMD" '
+      .hooks //= {}
+      | .hooks.SessionStart = ((.hooks.SessionStart // []) + [
+          { matcher: "startup", hooks: [{ type: "command", command: $cmd }] }
+        ])'
+  else cat; fi
+}
+merge_own() { if declare -F settings_merge >/dev/null; then settings_merge; else cat; fi; }
+
+if declare -F settings_merge >/dev/null || [ "$NOTICE" -eq 1 ] \
+   || { [ -f "$SETTINGS" ] && grep -qF "$NOTICE_CMD" "$SETTINGS"; }; then
   step "Merging into $SETTINGS"
   mkdir -p "$(dirname "$SETTINGS")"
   [ -f "$SETTINGS" ] || echo '{}' > "$SETTINGS"
-  jq empty "$SETTINGS" 2>/dev/null || { say "  $SETTINGS is not valid JSON — fix it and re-run."; exit 1; }
+  jq empty "$SETTINGS" 2>/dev/null || {
+    say "  $SETTINGS is not valid JSON — fix it and re-run."
+    REASON="settings.json is not valid JSON"; exit 1; }
 
   # Remove this package's previous entries across every event, then let the
   # manifest add the current ones. That is what makes re-running safe.
@@ -119,9 +191,10 @@ if declare -F settings_merge >/dev/null; then
     } | sort -u | jq -R . | jq -s .
   )
   tmp=$(mktemp)
-  jq --argjson owns "$owns_json" '
+  jq --argjson owns "$owns_json" --arg notice "$NOTICE_CMD" '
     def ours: (.command // "") as $c
-      | any($owns[]; gsub("[.]"; "\\.") as $o
+      | $c == $notice
+        or any($owns[]; gsub("[.]"; "\\.") as $o
           | $c | test("(^|[^A-Za-z0-9_-])" + $o + "($|[^A-Za-z0-9_-])"));
     def strip_ours: map(.hooks |= map(select(ours | not))) | map(select((.hooks | length) > 0));
     if (.hooks | type) == "object" then
@@ -129,7 +202,7 @@ if declare -F settings_merge >/dev/null; then
         if (.value | type) == "array" then .value |= strip_ours else . end)
       | .hooks |= with_entries(select((.value | type) != "array" or (.value | length) > 0))
     else . end
-  ' "$SETTINGS" | settings_merge > "$tmp"
+  ' "$SETTINGS" | merge_own | add_notice > "$tmp"
 
   if [ "$DRY" -eq 1 ]; then
     diff <(jq -S . "$SETTINGS") <(jq -S . "$tmp") || true
@@ -140,6 +213,7 @@ if declare -F settings_merge >/dev/null; then
     cp "$SETTINGS" "$SETTINGS.bak-$PKG"
     mv "$tmp" "$SETTINGS"
     for r in ${REGISTRATIONS[@]+"${REGISTRATIONS[@]}"}; do ok "$r"; done
+    if [ "$NOTICE" -eq 1 ]; then ok "SessionStart: the update notice"; fi
     ok "previous settings kept at $SETTINGS.bak-$PKG"
   fi
 elif [ "$DRY" -eq 1 ]; then
@@ -152,14 +226,28 @@ if [ -x "$LIB_DIR/update-check.sh" ]; then
   ok "v$VERSION, repo at $REPO"
 fi
 
-step "Verifying"
 fail=0
+
+if declare -F post_install >/dev/null; then
+  step "After installing"
+  if [ "${KIT_SKIP_MACHINE_HOOKS:-0}" = 1 ]; then
+    ok "post_install skipped (KIT_SKIP_MACHINE_HOOKS=1)"
+  elif post_install "$MODE"; then
+    ok "post_install"
+  else
+    warn "post_install in manifest.sh failed — the files are installed, but the step after them is not done"; fail=1
+    REASON="post_install failed"
+  fi
+fi
+
+step "Verifying"
 for entry in ${FILES[@]+"${FILES[@]}"} ${DIRS[@]+"${DIRS[@]}"}; do
-  [ -e "${entry#*:}" ] && ok "${entry#*:}" || { warn "missing ${entry#*:}"; fail=1; }
+  [ -e "${entry#*:}" ] && ok "${entry#*:}" || { warn "missing ${entry#*:}"; fail=1; REASON="${REASON:-missing ${entry#*:}}"; }
 done
 if declare -F verify_probe >/dev/null; then
   if verify_probe; then ok "it does what it is supposed to"
-  else warn "the probe in manifest.sh failed — it installed, but does not work"; fail=1; fi
+  else warn "the probe in manifest.sh failed — it installed, but does not work"; fail=1
+       REASON="${REASON:-verify_probe failed}"; fi
 fi
 
 say
