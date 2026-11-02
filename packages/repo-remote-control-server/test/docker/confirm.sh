@@ -240,12 +240,12 @@ needBox() {
 up() {
 	down quiet
 
-	echo "==> building the box image (systemd, git, jq, tmux, bubblewrap, socat)"
+	echo "==> building the box image (systemd, polkitd, git, jq, tmux, bubblewrap, socat)"
 	docker build -q -t "$IMAGE" - >/dev/null <<-'EOF'
 		FROM ubuntu:24.04
 		ENV DEBIAN_FRONTEND=noninteractive
 		RUN apt-get update -qq && apt-get install -y -qq \
-			systemd systemd-sysv dbus git jq curl ca-certificates procps sudo \
+			systemd systemd-sysv dbus polkitd git jq curl ca-certificates procps sudo \
 			tmux bubblewrap socat >/dev/null \
 			&& apt-get clean
 		RUN systemctl mask getty@tty1.service console-getty.service

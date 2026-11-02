@@ -106,10 +106,25 @@ tar -C "$PKG" --exclude=./test/docker/results --exclude=.claude --exclude=.mcp.j
 	| docker exec -i -u "$DEV" "$BOX" tar -C "$H/pkg" -xf -
 asDev 'tmp=$(mktemp) && f=~/.claude/settings.json && { [ -f $f ] || echo "{}" > $f; } \
 	&& jq ". * {\"sandbox\": {\"enabled\": true}}" $f > "$tmp" && mv "$tmp" $f'
+# The box's user has had linger since confirm.sh up, so without this the server
+# install's post_install only ever takes its already-on path. Off, it has to run
+# loginctl enable-linger as the user, which polkit allows: Ubuntu ships
+# polkitd, a box built before 2 Nov does not have it.
+# Installed into a running box, systemd and D-Bus have to be told about it, or
+# logind's call to polkit waits for a service nothing starts and times out.
+docker exec "$BOX" bash -c 'command -v pkcheck >/dev/null || {
+	apt-get update -qq && apt-get install -y -qq polkitd >/dev/null 2>&1; }
+	systemctl daemon-reload && systemctl reload dbus && systemctl start polkit'
+docker exec "$BOX" systemctl status --no-pager polkit >"$RESULTS/integration-polkit.txt" 2>&1 || true
+docker exec "$BOX" loginctl disable-linger "$DEV"
 asDev 'cd ~/session-pkg && ./install.sh --yes && cd ~/pkg && ./install.sh --yes' >"$RESULTS/integration-install.txt" 2>&1 \
 	&& [ "$(grep -c 'it does what it is supposed to' "$RESULTS/integration-install.txt")" = 2 ] \
 	&& result PASS install "both installed; both install probes passed" \
 	|| { result FAIL install "see integration-install.txt"; exit 1; }
+check linger "the server install turned linger on, as the user" \
+	test "$(grep -c 'turned on linger' "$RESULTS/integration-install.txt")-$(docker exec "$BOX" loginctl show-user "$DEV" -p Linger --value 2>/dev/null)" = 1-yes
+# linger back on starts the user's systemd again; rrcd start needs its bus
+for _ in $(seq 1 30); do docker exec "$BOX" test -S "/run/user/$DEV_UID/bus" && break; sleep 1; done
 
 DEMO=$H/repos/demo
 WEB=$H/repos/client_x/web
