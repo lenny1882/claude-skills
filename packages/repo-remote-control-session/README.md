@@ -87,10 +87,6 @@ Uninstalling stops every running session, unlinks the unit and takes
 given. A stale entry would let any later program called `rrc` run outside
 the sandbox.
 
-Coming from `repo-remote-control` 1.1.0, which this package and
-`repo-remote-control-server` replace: run that version's `./uninstall.sh`
-first, then install this one. Only the old uninstaller knows the old names.
-
 ## How it works
 
 - `rrc session` finds the repo root, sets
