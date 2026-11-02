@@ -399,6 +399,52 @@ session without you starting it, titled with `--name`, applies
 refused in a repo that already has a server, so `rrc session` must check for
 one and say so.
 
+**Proposed 2 Nov, not decided: no systemd for a session.** The unit only
+exists so the `claude` process outlives the `rrc` call that started it, and
+`setsid nohup` does that (see "Detached sessions (this machine, 2 Nov
+2026)"). Both of the first real failures were in the unit file. As proposed:
+
+- **`rrc session <dir>`** keeps finding the root, the server check
+  (`systemctl --user is-active rrc-server@…`, read-only), the sandbox check
+  and the trust. Then it empties `state/logs/<instance>.session.log` and, in
+  the root, runs `setsid nohup claude remote-control --spawn session <flags>`
+  with output to that log and stdin from `/dev/null`, and writes the PID to
+  `state/sessions/<instance>.pid`. The flags are passed as an array, so
+  `--name` can keep its spaces.
+- **Waiting for the URL** works as now, but "failed" means the PID is gone
+  rather than the unit failing, and the "Workspace not trusted" retry starts
+  the process again rather than the unit. That is a new library function
+  beside `waitForUrl`, which `rrcd` keeps using, so `RRC_LIB_VERSION` stays 1.
+- **A PID counts as a session** only while it is alive, its
+  `/proc/<pid>/cwd` is the root and its command line has `remote-control`,
+  so a reused PID is never taken for one. That check also replaces
+  "is a session already running in this repo".
+- **`rrc list`** prints each live one with its URL from the log, and removes
+  the PID files of dead ones.
+- **`rrc teardown`** sends each live one `TERM`, then `KILL` after 10
+  seconds, and removes the PID files. It also unlinks an
+  `rrc-session@.service` left by 1.0.0 and resets it, once.
+- **Gone:** `systemd/rrc-session@.service`, `ensureUnits`, `sessionUnitOf`,
+  the `.env` files and the `daemon-reload`.
+- **Kept:** `"rrc *"` in `sandbox.excludedCommands`. `rrc` still writes
+  `~/.claude.json`, and `claude` has to start outside the sandbox: a
+  sandboxed call has its own PID namespace, so a child left behind dies with
+  it.
+- **What it gives up:** a reboot ends the session, as it does now; nothing
+  can restart a crashed one, as now (`Restart=no`).
+- **Tests:** a stand-in `claude` that prints a session URL and waits, for
+  start, an already-running session, a dead PID, a reused PID, list and
+  teardown. Docker: one repo with a hyphen in its path.
+- **A folder's `bridge-pointer.json`** (see "Detached sessions"). Decided
+  2 Nov: `rrc session` deletes `~/.claude/projects/<folder>/bridge-pointer.json`
+  before a start when no live process owns it (its `pid` is dead or not
+  `remote-control`), so every start opens a new session. The folder name is
+  the root with every character other than a letter or digit turned into
+  `-`, as Claude Code names it (`…/repo/.claude/worktrees/x` becomes
+  `-…-repo--claude-worktrees-x`). The
+  Docker check opens two sessions in a row in one folder, ending the first
+  in between, so a change to the file's name or place fails there.
+
 ### Cloning
 
 - `rrc clone <url-or-slug> [path]`.
@@ -641,6 +687,52 @@ reloads systemd and D-Bus and starts polkit first.
 
 Not covered: two writers to `~/.claude.json` at once; that is covered only
 by the session package's tests.
+
+## Detached sessions (this machine, 2 Nov 2026)
+
+This machine runs Ubuntu 20.04 with systemd 245; the Docker box is 24.04
+with systemd 255.
+
+- **`rrc session ~/infra-box` failed**
+  (session 1.0.0, installed from the release). systemd failed
+  `rrc-session@mnt-sda-Development-github\x2dlenny1882-aws\x2dworkspace.service`
+  with result "resources". The journal had two causes, both in the unit file
+  and both in `rrc-server@.service` too:
+  - "Failed to load environment files: No such file or directory". The file
+    exists as `state/sessions/mnt-sda-Development-github\x2dlenny1882-aws\x2dworkspace.env`,
+    but `%i.env` resolved to another name. The `\x2d` is an escaped hyphen;
+    no Docker repo had a hyphen in its path. Whether systemd 255 does the
+    same is not known.
+  - "Failed to parse output specifier, ignoring: truncate:…".
+    `StandardOutput=truncate:` arrived in systemd 248, so on 245 the output
+    goes to the journal and `rrc` would never see the URL.
+  1.1.0 had the same unit.
+- **A `setsid nohup` process outlives the call that started it.** A `bash`
+  loop writing a timestamp every 5 seconds, started with `!` (unsandboxed,
+  the same path as an excluded `rrc`), wrote all 24 after the call returned.
+- **A real detached session works.** `setsid nohup claude remote-control
+  --spawn session --permission-mode auto`, started with `!` in
+  `infra-box`, wrote its `https://claude.ai/code/session_…` URL to a
+  plain log file. Opened from claude.ai after the call returned, it answered
+  with the right directory and branch. Ended in the app, its process exited.
+- **Logout:** `/etc/systemd/logind.conf` leaves `KillUserProcesses` at its
+  default, `no`, with no override, so an SSH logout does not kill it either.
+- **Quitting Claude Code does not end it.** Started with `!` from a second
+  Claude Code in `infra-box`, the process (PID 497454) was still running
+  8 minutes later, after that Claude Code had been quit.
+- **A second session in the same folder resumes the first, and fails if it
+  was ended in the app.** `claude` keeps each folder's last Remote Control
+  session in `~/.claude/projects/<folder>/bridge-pointer.json`
+  (`{"sessionId":"session_…","environmentId":"env_…","source":"standalone","pid":…,"procStart":"…"}`).
+  When a session ends, the pointer stays ("Resume this session by running
+  `claude remote-control --continue`"). The next `--spawn session` in that
+  folder printed the same `session_01EXAMPLE3` URL, logged
+  "CCR v2 worker registration failed … Request failed with status code 404",
+  and stayed running with the folder held: the URL showed "this session
+  couldn't be found", and a third start was refused as "already served".
+  `rrc session` hits this whichever way it starts `claude`; the 22 Oct
+  Docker check opened one session per folder, so never saw it. The file is
+  Claude Code's own and undocumented.
 
 ## Still open
 
