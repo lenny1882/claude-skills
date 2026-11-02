@@ -19,6 +19,11 @@
 #
 # Needs `curl`.
 #
+# A package's manifest.sh can define update_available, which check runs once
+# for each newly found release, with the installed version, the new one and
+# the release URL. See do_check. It can also define claude_updated, which
+# claude-check runs when Claude Code's version has changed. See claude_check.
+#
 # Everything a caller displays comes from the *previous* run's state file. That
 # is deliberate: reading a file is instant, whereas waiting on the network is
 # not, so the notice you see is at most a day stale and costs nothing to show.
@@ -27,6 +32,9 @@
 #   badge             "<glyph> vX.Y.Z" if an update is waiting, else nothing
 #   notice            two-line plain-text notice, else nothing
 #   hook-json         {"systemMessage": "..."} for a hook to emit, else nothing
+#   session-start     hook-json, then today's check and claude-check in the
+#                     background; what install.sh registers on SessionStart
+#   claude-check      run claude_updated if Claude Code's version changed
 #   status            installed / available / last checked
 #   record-install <version> <repo-dir>    called by install.sh
 #   clear             forget what the last check found
@@ -111,8 +119,56 @@ do_check() {
     return 0
   fi
 
+  local before; before=$(read_file "$AVAIL")
   printf '%s\n' "$latest" > "$AVAIL"
   printf '%s\n' "$rel_url" > "$URL_F"
+
+  # update_available, from the package's manifest.sh, runs once per newly found
+  # release: when it is newer than what is installed and differs from what the
+  # previous check found. It runs inside this check, which callers run in the
+  # background, so it can act but cannot show anything in a session — that is
+  # what notice and hook-json are for. Its output goes to update_available.log.
+  local have; have=$(read_file "$INSTALLED")
+  if newer_than "$have" "$latest" && [ "$latest" != "$before" ]; then
+    run_manifest_hook update_available "v$latest found (installed v$have)" "$have" "$latest" "$rel_url"
+  fi
+}
+
+# Runs a function from the recorded package's manifest.sh, if it defines it,
+# logging to $STATE/<hook>.log. A failure is logged, never passed on: this runs
+# in the background, where nobody would see it.
+run_manifest_hook() { # run_manifest_hook <hook> <log line> <args...>
+  local hook=$1 line=$2 repo; shift 2
+  [ "${KIT_SKIP_MACHINE_HOOKS:-0}" = 1 ] && return 0
+  repo=$(read_file "$REPO_F")
+  [ -n "$repo" ] && [ -f "$repo/manifest.sh" ] || return 0
+  mkdir -p "$STATE"
+  (
+    export CLAUDE_DIR="${CLAUDE_DIR:-$HOME/.claude}"
+    FILES=(); DIRS=(); STATE_DIRS=(); REGISTRATIONS=()
+    # shellcheck disable=SC1091
+    . "$repo/manifest.sh" || exit 0
+    declare -F "$hook" >/dev/null || exit 0
+    printf '%s  %s\n' "$(date '+%F %T')" "$line"
+    if "$hook" "$@"; then echo "  $hook ok"
+    else echo "  $hook failed (status $?)"; fi
+  ) >> "$STATE/$hook.log" 2>&1
+}
+
+# claude_updated, from the package's manifest.sh, runs when the Claude Code
+# version differs from the one seen last time, with the old and new versions.
+# The first run only records it. Run on every session start, in the
+# background: a Claude Code update should not wait for the daily check.
+claude_check() {
+  command -v claude >/dev/null 2>&1 || return 0
+  local now was
+  now=$(timeout 10 claude --version 2>/dev/null | head -1 | grep -oE '[0-9]+(\.[0-9]+)+' | head -1)
+  [ -n "$now" ] || return 0
+  mkdir -p "$STATE"
+  was=$(read_file "$STATE/claude-version")
+  printf '%s\n' "$now" > "$STATE/claude-version"
+  [ -n "$was" ] && [ "$was" != "$now" ] || return 0
+  run_manifest_hook claude_updated "Claude Code v$was -> v$now" "$was" "$now"
 }
 
 checked_today() {
@@ -139,6 +195,18 @@ case "${1:-status}" in
       url=$(read_file "$URL_F")
       [ -n "$url" ] && printf '  release notes: %s\n' "$url"
     fi
+    ;;
+
+  session-start)
+    # For a SessionStart hook: print the notice the last check left, then start
+    # today's check detached, with every stream closed so the session does not
+    # wait on it.
+    "$0" hook-json
+    ( { "$0" check; "$0" claude-check; } </dev/null >/dev/null 2>&1 & ) </dev/null >/dev/null 2>&1
+    ;;
+
+  claude-check)
+    claude_check
     ;;
 
   hook-json)
@@ -176,7 +244,7 @@ case "${1:-status}" in
     ;;
 
   *)
-    printf 'usage: %s {check [--force]|badge|notice|hook-json|status|clear}\n' \
+    printf 'usage: %s {check [--force]|badge|notice|hook-json|session-start|claude-check|status|clear}\n' \
       "$(basename "$0")" >&2
     exit 1
     ;;

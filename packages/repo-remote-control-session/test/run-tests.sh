@@ -50,13 +50,18 @@ CLAUDE_DIR="$XD" "$REPO/uninstall.sh" --yes --keep-settings >/dev/null 2>&1
 jq -e '.sandbox.excludedCommands | index("rrc *")' "$XD/settings.json" >/dev/null \
   && ok "uninstall --keep-settings keeps the exclusion" || no "uninstall --keep-settings keeps the exclusion" "$(cat "$XD/settings.json")"
 CLAUDE_DIR="$XD" "$REPO/install.sh" --yes >/dev/null 2>&1
+# The exclusion comes out in pre_uninstall, which the tests' uninstalls skip
+# (KIT_SKIP_MACHINE_HOOKS=1): it also runs rrc teardown, against the real
+# systemd. So strip_excluded is called here on its own.
 CLAUDE_DIR="$XD" "$REPO/uninstall.sh" --yes >"$TMP/out" 2>&1
+(CLAUDE_DIR="$XD"; . "$REPO/manifest.sh"; strip_excluded) >>"$TMP/out" 2>&1
 jq -e '.sandbox.excludedCommands == ["docker *"] and .sandbox.enabled == true
   and .sandbox.network.allowedDomains == ["example.com"]' "$XD/settings.json" >/dev/null \
   && ok "uninstall removes \"rrc *\" and nothing else" || no "uninstall removes \"rrc *\" and nothing else" "$(cat "$XD/settings.json") $(tail -5 "$TMP/out")"
 printf '{"sandbox":{"enabled":true}}\n' >"$XD/settings.json"
 CLAUDE_DIR="$XD" "$REPO/install.sh" --yes >/dev/null 2>&1
 CLAUDE_DIR="$XD" "$REPO/uninstall.sh" --yes >/dev/null 2>&1
+(CLAUDE_DIR="$XD"; . "$REPO/manifest.sh"; strip_excluded) >/dev/null 2>&1
 jq -e '.sandbox == {"enabled": true}' "$XD/settings.json" >/dev/null \
   && ok "an exclusion list rrc alone made is removed whole" || no "an exclusion list rrc alone made is removed whole" "$(cat "$XD/settings.json")"
 

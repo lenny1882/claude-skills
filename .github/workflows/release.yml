@@ -61,11 +61,24 @@ jobs:
         env:
           TAG: ${{ github.ref_name }}
         run: |
+          # The files PAYLOAD lists, plus whatever build() in the package's
+          # manifest.sh makes and BUILD_OUTPUTS lists, for generated files.
           payload=$(git show "$TAG:packages/$PKG/PAYLOAD")
-          git archive --format=tar.gz \
+          stage=$(mktemp -d)
+          git archive --format=tar \
             --prefix="$PKG/" \
-            -o "$PKG.tar.gz" \
+            -o "$stage/files.tar" \
             "$TAG:packages/$PKG" -- $payload
+          tar -xf "$stage/files.tar" -C "$stage" && rm "$stage/files.tar"
+          export CLAUDE_DIR="$HOME/.claude"
+          if ( cd "packages/$PKG" && . ./manifest.sh && declare -F build >/dev/null ); then
+            ( cd "packages/$PKG" && . ./manifest.sh && build "$VERSION" )
+            for o in $( cd "packages/$PKG" && . ./manifest.sh && printf '%s\n' ${BUILD_OUTPUTS[@]+"${BUILD_OUTPUTS[@]}"} ); do
+              mkdir -p "$stage/$PKG/$(dirname "$o")"
+              cp -r "packages/$PKG/$o" "$stage/$PKG/$o"
+            done
+          fi
+          tar -czf "$PKG.tar.gz" -C "$stage" "$PKG"
 
       - name: Create GitHub Release
         env:

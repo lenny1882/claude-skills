@@ -128,10 +128,11 @@ the old uninstaller knows the old names.
   deletes the generated `worktree-bridge-*` branch; a `PreToolUse` guard on
   Bash blocks `git commit` on a detached HEAD. The guard sees only Bash, so a
   commit made another way gets past it.
-- The first `rrcd start` also turns linger on (`loginctl enable-linger`), so
-  the user's systemd instance, and every server in it, starts at boot and
-  keeps running after logout. That applies to all of the user's enabled
-  units, not only these. If it can't, it says to run the command yourself.
+- The installer also turns linger on (`loginctl enable-linger`), so the
+  user's systemd instance, and every server in it, starts at boot and keeps
+  running after logout. That applies to all of the user's enabled units, not
+  only these. If it can't, the install fails and says to run the command
+  yourself.
 - `rrcd clone <slug>` needs `CLONE_BASE` in `state/config`, for example
   `CLONE_BASE="git@ssh.bitbucket.org:<workspace>/"`; there is no built-in
   host. `ORCHESTRATOR_TMUX` there names the pane for `[rrcd]` messages,

@@ -58,10 +58,12 @@ printf '%s\n' "== Uninstalling $PKG"
 
 # pre_uninstall runs while the package is still installed, for anything that
 # needs its files to undo — services started from inside the skill's directory,
-# say. If it fails, nothing is removed.
+# say. If it fails, nothing is removed. Test harnesses set
+# KIT_SKIP_MACHINE_HOOKS=1, because stopping services changes the real machine.
 if declare -F pre_uninstall >/dev/null; then
   step "Before removing anything"
-  if pre_uninstall; then ok "pre_uninstall"
+  if [ "${KIT_SKIP_MACHINE_HOOKS:-0}" = 1 ]; then ok "pre_uninstall skipped (KIT_SKIP_MACHINE_HOOKS=1)"
+  elif pre_uninstall; then ok "pre_uninstall"
   else echo "pre_uninstall failed — nothing removed." >&2; exit 1; fi
 fi
 
@@ -108,9 +110,10 @@ elif confirm "  Remove this package's hook entries?"; then
     } | sort -u | jq -R . | jq -s .
   )
   tmp=$(mktemp)
-  jq --argjson owns "$owns_json" '
+  jq --argjson owns "$owns_json" --arg notice "~/.local/share/$PKG/update-check.sh session-start" '
     def ours: (.command // "") as $c
-      | any($owns[]; gsub("[.]"; "\\.") as $o
+      | $c == $notice
+        or any($owns[]; gsub("[.]"; "\\.") as $o
           | $c | test("(^|[^A-Za-z0-9_-])" + $o + "($|[^A-Za-z0-9_-])"));
     def strip_ours: map(.hooks |= map(select(ours | not))) | map(select((.hooks | length) > 0));
     if (.hooks | type) == "object" then
@@ -122,6 +125,23 @@ elif confirm "  Remove this package's hook entries?"; then
   ok "cleaned; previous file saved as $SETTINGS.bak-uninstall"
 else
   ok "left alone"
+fi
+
+# post_uninstall runs once everything is removed, to undo a change outside
+# $HOME that needs none of the package's files — loginctl disable-linger, say.
+# Everything is already gone, so a failure is reported, not undone. Test
+# harnesses set KIT_SKIP_MACHINE_HOOKS=1, as for pre_install and post_install.
+if declare -F post_uninstall >/dev/null; then
+  step "After removing"
+  if [ "${KIT_SKIP_MACHINE_HOOKS:-0}" = 1 ]; then
+    ok "post_uninstall skipped (KIT_SKIP_MACHINE_HOOKS=1)"
+  elif post_uninstall; then
+    ok "post_uninstall"
+  else
+    warn "post_uninstall in manifest.sh failed — the package is removed, but the step after it is not done"
+    printf '\n%s\n' "Finished with problems — see the warning above."
+    exit 1
+  fi
 fi
 
 printf '\n%s\n' "Done."
