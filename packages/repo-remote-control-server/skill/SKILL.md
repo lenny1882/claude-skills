@@ -18,7 +18,6 @@ same way every time.
 rrcd start <dir> [--permission-mode <mode>] [--prefix <prefix>] [--create-session-in-dir]
 rrcd clone <url-or-slug> [path] [--name <folder>]   # into ~/repos/[path]/<name>, then start
 rrcd list
-rrcd url <dir>
 rrcd restart <dir>
 rrcd stop <dir>
 ```
@@ -30,7 +29,7 @@ repo-remote-control-session.
 ## Run each rrcd command as one bare call
 
 The installer lists `rrcd start *`, `rrcd clone *`, `rrcd list`,
-`rrcd url *`, `rrcd restart *` and `rrcd stop *` in
+`rrcd restart *` and `rrcd stop *` in
 `sandbox.excludedCommands`, so those run outside the sandbox, which they have
 to. An entry matches a Bash call only when the whole call is that command:
 

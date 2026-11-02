@@ -32,8 +32,8 @@ and linger with them.
   only the bare command, so `["rrc"]` (planned below, and what the 22 Oct
   Docker check passed with, because it called a bare `rrc`) would have left
   every real call sandboxed. The session package adds `"rrc *"`. The server
-  package adds `rrcd start *`, `rrcd clone *`, `rrcd list`, `rrcd url *`,
-  `rrcd restart *` and `rrcd stop *`. `remove`, `restart-all`, `disable` and
+  package adds `rrcd start *`, `rrcd clone *`, `rrcd list`,
+  `rrcd restart *` and `rrcd stop *` (`rrcd url *` until 2 Nov; see item 3). `remove`, `restart-all`, `disable` and
   `teardown` stay sandboxed, so they fail from Claude and the user runs them.
   `rrcd restart *` does not match `restart-all`: the space before `*` makes
   it a whole word. Each package's `pre_uninstall` takes its own entries out,
@@ -84,6 +84,16 @@ to the user one at a time yet; each stays open until it has.
    one it needs. `RRCD_RRC` became `RRCD_RRC_LIB`.
 3. **`rrcd url` and its `rrcd url *` exclusion.** Not discussed. Added so
    `rrc session` can put the server's URL in its "has a server" refusal.
+
+   **Decided 2 Nov: keep `rrcd url`, drop its exclusion.** Why it was built
+   this way: the server's output, which holds its URL, moved to the server
+   package's state directory, so `rrc` could no longer read it, and a command
+   and an exclusion were added without asking. The command stays, so only
+   the server package reads its own files. The exclusion goes: `rrc` runs
+   outside the sandbox through `"rrc *"`, and the `rrcd url` it starts runs
+   outside with it; Claude gets URLs from `rrcd list`. `rrcd url` is off
+   SKILL.md's command list, because sandboxed it would report a running
+   server as "not running".
 4. **Separate locks.** Not discussed. Each package locks its own
    `state/.lock`, so an `rrc session` and an `rrcd start` running at once can
    race on `~/.claude.json`. "Shared code once" above says "the lock", which
