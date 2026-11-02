@@ -1,14 +1,14 @@
 # repo-remote-control-session
 
 Opens one Claude Remote Control session in any repo on this machine, as a
-systemd user unit, so it can be picked up from claude.ai or the Claude app.
+detached process, so it can be picked up from claude.ai or the Claude app.
 
 `claude remote-control --spawn session` only opens a session in the directory
 it was started in, has to outlive the shell that started it, needs the repo
 trusted in `~/.claude.json` first, and prints its URL inside a redrawing
-status screen. Claude can't do any of that from its own Bash tool, because
-the sandbox blocks the user bus, `~/.config/systemd/user` and
-`~/.claude.json`. `rrc session` does it in one call, and the installer lets
+status screen. Claude can't do any of that from its own Bash tool: the
+sandbox blocks `~/.claude.json`, and ends every process a call started when
+the call ends. `rrc session` does it in one call, and the installer lets
 that call out of the sandbox.
 
 For servers that survive reboots and serve every session in a repo, install
@@ -82,7 +82,7 @@ tarball as well as a clone — no git needed.
     ./uninstall.sh --keep-settings leave settings.json alone
     ./uninstall.sh --keep-state    keep the package's state for a later reinstall
 
-Uninstalling stops every running session, unlinks the unit and takes
+Uninstalling stops every running session and takes
 `"rrc *"` out of `sandbox.excludedCommands`, unless `--keep-settings` is
 given. A stale entry would let any later program called `rrc` run outside
 the sandbox.
@@ -91,15 +91,26 @@ the sandbox.
 
 - `rrc session` finds the repo root, sets
   `projects["<root>"].hasTrustDialogAccepted` in `~/.claude.json` (backed up,
-  written through a temp file and `mv`), writes the session's flags to
-  `state/sessions/<instance>.env`, and starts `rrc-session@<instance>.service`,
-  the instance being the root escaped with `systemd-escape --path`. The unit
-  runs `claude remote-control --spawn session` and writes its output to
-  `state/logs/<instance>.session.log`, emptied at every start. `rrc` reads the
-  session URL from there.
-- The unit template lives in the skill and is linked into
-  `~/.config/systemd/user` by the first `rrc session`. It has no `[Install]`
-  section and `Restart=no`, so a session never comes back.
+  written through a temp file and `mv`), and starts
+  `claude remote-control --spawn session` in the root with `setsid nohup`: in
+  a session of its own, with no terminal, so it keeps running after `rrc`,
+  the Bash call that ran it, that Claude Code and an SSH logout. Its output
+  goes to `state/logs/<instance>.session.log`, emptied at every start, and
+  its PID to `state/sessions/<instance>.pid`, the instance being the root
+  escaped with `systemd-escape --path`. `rrc` reads the session URL from the
+  output.
+- A PID file counts only while its PID is a `remote-control` process running
+  in that root, so a PID the system has since reused is never listed or
+  killed. Nothing restarts a session, and a reboot ends it.
+- Before a start, `rrc` deletes `~/.claude/projects/<folder>/bridge-pointer.json`
+  when no live process holds it. `claude` keeps the folder's last session
+  there, and the next start resumes it; once that session was ended in the
+  app, the resume fails with a 404 and the process stays up holding the
+  folder.
+- Up to 1.0.0 each session was a systemd unit, `rrc-session@.service`. On
+  systemd 245 (Ubuntu 20.04) it never started: `StandardOutput=truncate:`
+  needs 248, and the unit's `%i.env` was not found for a path with a hyphen
+  in it. `rrc teardown` stops and unlinks one left from 1.0.0.
 - Everything `rrc` writes is in the skill's `state/`, which reinstalls keep.
 - The code for finding the repo, trust, the lock and reading the output is in
   `skill/lib/rrc-lib.sh`. `rrc` sources it, and so does `rrcd`, from
@@ -111,8 +122,14 @@ It relies on Claude Code behaviour checked in Docker (see
 change:
 
 - The output format: the `https://claude.ai/code/session_…` line, and the
-  "Workspace not trusted" and "already served" errors. If the format changes,
+  "Workspace not trusted" and "already served" errors. A folder is refused
+  as "already served" for up to about 3 minutes after its last session stops
+  (131 to 194 seconds in Docker, 2 Nov); `rrc session` stops the refused
+  process and tries again every 15 seconds for up to 5 minutes. If the format changes,
   `rrc session` waits two minutes and fails with "no URL".
+- `claude` resumes a folder's last session from
+  `~/.claude/projects/<folder>/bridge-pointer.json`, a file of its own with
+  no documentation. If it moves, a second session in a repo fails again.
 - Claude refuses a single session in a folder that already has a server.
   `rrc session` checks for `rrc-server@<instance>.service` first and hands out
   the server's URL from `rrcd url`.
@@ -124,8 +141,7 @@ change:
 
     rrc teardown
 
-stops every session and unlinks the unit. `uninstall.sh` runs it first, before
-removing anything.
+stops every session. `uninstall.sh` runs it first, before removing anything.
 
 ## Tests
 

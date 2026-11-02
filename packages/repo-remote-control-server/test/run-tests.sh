@@ -88,7 +88,7 @@ echo "rrcd"
 # systemctl is a stand-in: no systemd here, and the real one would start real
 # servers. It records each call, keeps unit state in files, and on start plays
 # a server output captured in the Docker checks into the unit's log, as the
-# unit's StandardOutput=truncate: does. Everything else is real: git repos and
+# unit's rrcd serve does (tested on its own below). Everything else is real: git repos and
 # worktrees, systemd-escape, jq on a real ~/.claude.json.
 RRC="$REPO/skill/bin/rrcd"
 FIX="$REPO/test/fixtures"
@@ -385,10 +385,40 @@ locked "$TW/bridge-live" && locked "$TW/bridge-other" && locked "$TMP/tidy/not-t
 grep -q 'bridge-stale-clean: removed' "$RRCD_STATE/logs/tidy.log" 2>/dev/null \
   && ok "tidy logs what it did to state/logs/tidy.log" || no "tidy logs what it did to state/logs/tidy.log" "$(cat "$RRCD_STATE/logs/tidy.log" 2>&1)"
 kill "$live" 2>/dev/null
-grep -qx 'ExecStartPre=-%h/.local/bin/rrcd tidy /%I' "$REPO/skill/systemd/rrc-server@.service" \
-  && grep -qx 'Restart=always' "$REPO/skill/systemd/rrc-server@.service" \
+U="$REPO/skill/systemd/rrc-server@.service"
+grep -qx 'ExecStartPre=-%h/.local/bin/rrcd tidy "/%I"' "$U" && grep -qx 'Restart=always' "$U" \
   && ok "the server unit runs rrcd tidy before each start and restarts after any exit" \
-  || no "the server unit runs rrcd tidy before each start and restarts after any exit" "$(grep -E '^(ExecStartPre|Restart)=' "$REPO/skill/systemd/rrc-server@.service")"
+  || no "the server unit runs rrcd tidy before each start and restarts after any exit" "$(grep -E '^(ExecStartPre|Restart)=' "$U")"
+# systemd 245 has no StandardOutput=truncate:, and did not find a %i.env for
+# a path with a hyphen in it (2 Nov), so the unit passes only the unescaped
+# path and rrcd serve does the rest.
+grep -qx 'ExecStart=%h/.local/bin/rrcd serve "/%I"' "$U" && ! grep -v '^#' "$U" | grep -qE '%i|^EnvironmentFile=|^Standard(Output|Error)=' \
+  && ok "the server unit runs rrcd serve with the repo's path, and names no file by %i" \
+  || no "the server unit runs rrcd serve with the repo's path, and names no file by %i" "$(grep -vE '^#' "$U")"
+
+# rrcd serve, with a stand-in claude that records where and how it ran
+cat >"$STUB/bin/claude" <<'EOF'
+#!/usr/bin/env bash
+pwd >"$STUB/serve.cwd"; printf '%s\n' "$@" >"$STUB/serve.args"; echo "the server's output"
+EOF
+chmod +x "$STUB/bin/claude"
+HY=$(repo "$HOME/repos/client-x/my-web"); HI=$(inst "$HY")
+mkdir -p "$RRCD_STATE/repos" "$RRCD_STATE/logs"
+printf 'RRC_ROOT="%s"\nRRC_ARGS="--permission-mode plan --no-create-session-in-dir --remote-control-session-name-prefix client-x/my-web"\n' "$HY" >"$RRCD_STATE/repos/$HI.env"
+echo "the previous run's output" >"$RRCD_STATE/logs/$HI.log"
+out=$(cd / && RRCD_CLAUDE="$STUB/bin/claude" "$RRC" serve "$HY" 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(cat "$STUB/serve.cwd")" = "$HY" ] \
+  && [ "$(cat "$STUB/serve.args")" = $'remote-control\n--spawn\nworktree\n--permission-mode\nplan\n--no-create-session-in-dir\n--remote-control-session-name-prefix\nclient-x/my-web' ] \
+  && ok "serve runs claude in the repo with its flags, a path with hyphens included" \
+  || no "serve runs claude in the repo with its flags, a path with hyphens included" "rc=$rc $out $(cat "$STUB/serve.cwd" "$STUB/serve.args" 2>&1)"
+[ "$(cat "$RRCD_STATE/logs/$HI.log")" = "the server's output" ] && [ -z "$out" ] \
+  && ok "serve empties the output file and sends claude's output there" \
+  || no "serve empties the output file and sends claude's output there" "$(cat "$RRCD_STATE/logs/$HI.log") / $out"
+NOSET=$(repo "$HOME/repos/never-started")
+out=$("$RRC" serve "$NOSET" 2>&1); rc=$?
+[ "$rc" = 1 ] && grep -q 'has no settings' <<<"$out" \
+  && ok "serve in a repo rrcd start never set up says so" || no "serve in a repo rrcd start never set up says so" "rc=$rc $out"
+rm -f "$STUB/bin/claude"
 
 out=$("$RRC" frobnicate 2>&1); rc=$?
 [ "$rc" = 2 ] && grep -q 'usage: rrcd' <<<"$out" && ok "an unknown command prints usage" || no "an unknown command prints usage" "rc=$rc"

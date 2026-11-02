@@ -4,10 +4,13 @@
 #
 # The aws-workspace session tested this template's core; the rest is from the
 # Docker checks in test/docker/ (see DESIGN.md):
-# - per-repo flags come from the EnvironmentFile rrcd start writes, unquoted
-#   $RRC_ARGS so systemd splits them into separate arguments
-# - output goes to a file that is emptied at every start; rrcd reads the
-#   environment URL from it, because the URL changes on every restart
+# - rrcd serve reads the repo's flags from the file rrcd start writes, empties
+#   the output file and runs claude with its output there; rrcd reads the
+#   environment URL from it, because the URL changes on every restart. Not
+#   EnvironmentFile= and StandardOutput=truncate:, as in 2.0.0: systemd 245
+#   (Ubuntu 20.04) has no truncate:, and could not find a %i.env for a path
+#   with a hyphen in it, whose instance name holds \x2d (2 Nov). %I, the
+#   unescaped path, is all the unit passes on
 # - a server started just after another one in the same folder stopped is
 #   refused for about 70 seconds and exits; Restart=always retries it
 # - after about 10 minutes without a network the server exits with status 0
@@ -23,11 +26,8 @@ Description=Claude Remote Control server in /%I
 
 [Service]
 WorkingDirectory=/%I
-EnvironmentFile=%h/.claude/skills/repo-remote-control-server/state/repos/%i.env
-ExecStartPre=-%h/.local/bin/rrcd tidy /%I
-ExecStart=%h/.local/bin/claude remote-control --spawn worktree $RRC_ARGS
-StandardOutput=truncate:%h/.claude/skills/repo-remote-control-server/state/logs/%i.log
-StandardError=inherit
+ExecStartPre=-%h/.local/bin/rrcd tidy "/%I"
+ExecStart=%h/.local/bin/rrcd serve "/%I"
 Restart=always
 RestartSec=30
 

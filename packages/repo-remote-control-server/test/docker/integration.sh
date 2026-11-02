@@ -96,6 +96,21 @@ asDev 'claude auth status' >/dev/null 2>&1 \
 mkdir -p "$RESULTS"
 echo "  claude $(asDev 'claude --version' | head -1)" >>"$RESULTS/integration.txt"
 
+echo "==> clearing what earlier runs left"
+# A run stopped part-way leaves its servers, sessions, test repos and their
+# origins behind, and the next run's checks then meet those instead of their
+# own: a push to an origin with another history, a server still holding a
+# folder. Everything this script makes is removed first, and stopped again on
+# exit, however it exits. The [c] keeps pkill from matching its own shell.
+cleanup() {
+	asDev 'command -v rrcd >/dev/null && rrcd teardown; command -v rrc >/dev/null && rrc teardown
+		pkill -f "[c]laude remote-control"; true' >/dev/null 2>&1 || true
+}
+cleanup
+asDev "rm -rf $H/repos/client-x $H/repos/one-off-x $H/origin/my-web.git \
+	~/.claude/skills/repo-remote-control-session/state/sessions ~/.claude/skills/repo-remote-control-server/state/repos"
+trap cleanup EXIT
+
 echo "==> installing both packages into the box"
 # the session package first: rrcd sources its rrc-lib.sh, and the server install
 # fails without it. The installers add the sandbox exclusions themselves.
@@ -123,13 +138,24 @@ asDev 'cd ~/session-pkg && ./install.sh --yes && cd ~/pkg && ./install.sh --yes'
 	|| { result FAIL install "see integration-install.txt"; exit 1; }
 check linger "the server install turned linger on, as the user" \
 	test "$(grep -c 'turned on linger' "$RESULTS/integration-install.txt")-$(docker exec "$BOX" loginctl show-user "$DEV" -p Linger --value 2>/dev/null)" = 1-yes
-# linger back on starts the user's systemd again; rrcd start needs its bus
-for _ in $(seq 1 30); do docker exec "$BOX" test -S "/run/user/$DEV_UID/bus" && break; sleep 1; done
+# Linger back on starts the user's systemd again, and rrcd start needs it.
+# The bus socket can be left from the instance linger off stopped, so its
+# being there proves nothing ("Transport endpoint is not connected", 2 Nov):
+# wait for the manager itself to answer.
+state=""
+for _ in $(seq 1 60); do
+	state=$(userctl is-system-running 2>/dev/null || true)
+	[[ $state == running || $state == degraded ]] && break
+	sleep 1
+done
+[[ $state == running || $state == degraded ]] \
+	|| { result FAIL user-systemd "the user's systemd did not come back after linger: ${state:-no answer}"; exit 1; }
 
 DEMO=$H/repos/demo
-WEB=$H/repos/client_x/web
-asDev "[ -d $WEB/.git ] || { mkdir -p $WEB && cd $WEB && git init -q -b main && git commit -q --allow-empty -m init \
-	&& git init -q --bare $H/origin/web.git && git remote add origin $H/origin/web.git && git push -q origin main; }"
+# hyphens in the path: the 2.0.0 unit's %i.env was not found for one (2 Nov)
+WEB=$H/repos/client-x/my-web
+asDev "mkdir -p $WEB && cd $WEB && git init -q -b main && git commit -q --allow-empty -m init \
+	&& git init -q --bare $H/origin/my-web.git && git remote add origin $H/origin/my-web.git && git push -q origin main"
 
 echo "==> rrcd start"
 out=$(asDev "rrcd start $DEMO" 2>"$RESULTS/integration-start.err") || true
@@ -147,6 +173,67 @@ check list "rrcd list shows both servers, idle, with their URLs" \
 echo "==> rrc session beside a server"
 out=$(asDev "rrc session $DEMO" 2>&1) || true
 check session-refused "rrc session in a repo with a server is refused and gives the server's URL, from rrcd url" grep -qF "$u1" <<<"$out"
+
+echo "==> rrc session, a detached process"
+# hyphens in the path too; and each start must open a new session, not
+# resume the folder's last one from claude's bridge-pointer.json
+SES=$H/repos/one-off-x
+asDev "mkdir -p $SES && cd $SES && git init -q -b main && git commit -q --allow-empty -m init"
+sessionPid() { asDev "sed -n 's/^RRC_PID=//p' ~/.claude/skills/repo-remote-control-session/state/sessions/*.pid 2>/dev/null | head -1"; }
+liveRc() { [ -n "$1" ] && asDev "tr '\\0' ' ' 2>/dev/null </proc/$1/cmdline | grep -q remote-control"; }
+# A folder is refused for up to about 3 minutes after its last session stops
+# (131 to 194 s, 2 Nov), and rrc session waits that out itself. This times
+# each start, so the run log keeps the refusal's length.
+sessionWhenFree() { # n: prints the URL
+	local out t0=$SECONDS
+	out=$(asDev "rrc session $SES" 2>"$RESULTS/integration-session-$1.err") || true
+	echo "     rrc session took $((SECONDS - t0))s$(grep -q 'still registered' "$RESULTS/integration-session-$1.err" && echo ', waiting out a refused folder')" >&2
+	sed -n 2p <<<"$out"
+}
+
+s1=$(sessionWhenFree 1)
+check session-start "rrc session prints the repo and a session URL" grep -q '^https://claude.ai/code/session_' <<<"$s1"
+p1=$(sessionPid)
+check session-detached "the session keeps running after rrc returns, and links no unit" \
+	eval 'liveRc "$p1" && ! asDev "test -e ~/.config/systemd/user/rrc-session@.service"'
+asDev 'rrc list' >"$RESULTS/integration-session-list.txt" 2>&1 || true
+check session-list "rrc list shows it with its URL" grep -qF "$s1" "$RESULTS/integration-session-list.txt"
+asDev 'rrc teardown' >/dev/null 2>&1 || true
+sleep 1
+check session-teardown "rrc teardown stops it" eval '! liveRc "$p1"'
+s2=$(sessionWhenFree 2)
+check session-new "a second rrc session in the folder opens a new session, not the last one again" \
+	eval 'grep -q "^https://claude.ai/code/session_" <<<"$s2" && [ "$s2" != "$s1" ]'
+if [ "$APP" = yes ]; then
+	echo "==> rrc session after a session was ended in the app (you, in the app)"
+	# On 2 Nov a session started in a folder whose last session had been ended
+	# in the app resumed that ended one from bridge-pointer.json, got a 404,
+	# and showed "this session couldn't be found". rrc now deletes the pointer
+	# first. Ending a session in the app is the part only you can do.
+	p2=$(sessionPid)
+	tell "Open $s2" \
+		"It is a single session in ${SES##*/}, already started by rrc session: there is no environment to pick." \
+		"Send it exactly:" \
+		"  Run these and show me the output verbatim: pwd; git branch --show-current" \
+		"When it has answered, end the session: archive or delete it from the session list in claude.ai or the app."
+	ask session-answered y "Did it answer with $SES and main?"
+	sleep 5
+	check session-ended "ending the session in the app ended its process" eval '! liveRc "$p2"'
+	s3=$(sessionWhenFree 3)
+	check session-new-after-ended "a session after one was ended in the app gets a new URL, not the ended one's" \
+		eval 'grep -q "^https://claude.ai/code/session_" <<<"$s3" && [ "$s3" != "$s2" ]'
+	p3=$(sessionPid)
+	tell "Open $s3" \
+		"This is the case that failed on 2 Nov: a new session in a folder whose last session was ended in the app." \
+		"Before the fix, this page said \"this session couldn't be found\"." \
+		"Send it exactly:" \
+		"  Run these and show me the output verbatim: pwd; git branch --show-current" \
+		"When it has answered, archive or delete this session too."
+	ask session-after-ended y "Did it answer with $SES and main, rather than say \"this session couldn't be found\"?"
+	sleep 5
+	check session-ended-again "ending that one in the app ended its process too" eval '! liveRc "$p3"'
+fi
+asDev 'rrc teardown' >/dev/null 2>&1 || true
 
 echo "==> rrcd restart"
 out=$(asDev "rrcd restart $DEMO" 2>/dev/null) || true

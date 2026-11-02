@@ -131,8 +131,6 @@ verify_probe() {
   head -1 "$d/SKILL.md" | grep -q '^---$' || return 1
   grep -q '^name:' "$d/SKILL.md" && grep -q '^description:' "$d/SKILL.md" || return 1
   u="$d/systemd/rrc-server@.service"
-  grep -q '^EnvironmentFile=%h/.claude/skills/repo-remote-control-server/state/repos/%i.env$' "$u" \
-    && grep -q '^StandardOutput=truncate:%h/.claude/skills/repo-remote-control-server/state/logs/%i.log$' "$u" \
-    || return 1
+  grep -q '^ExecStart=%h/.local/bin/rrcd serve "/%I"$' "$u" || return 1
   jq -e '.sandbox.excludedCommands | index("rrcd start *")' "$CLAUDE_DIR/settings.json" >/dev/null
 }

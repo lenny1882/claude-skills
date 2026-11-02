@@ -108,9 +108,14 @@ Uninstalling also takes its entries out of `sandbox.excludedCommands`, unless
   written through a temp file and `mv`), writes the repo's flags to
   `state/repos/<instance>.env`, and starts `rrc-server@<instance>.service`, the
   instance being the root escaped with `systemd-escape --path`. The unit runs
-  `claude remote-control --spawn worktree` with those flags and writes its
-  output to `state/logs/<instance>.log`, emptied at every start. `rrcd` reads
-  the environment URL and the "Capacity: N/32" session count from there.
+  `rrcd serve /<root>`, which empties `state/logs/<instance>.log` and becomes
+  `claude remote-control --spawn worktree` with those flags, its output going
+  there. `rrcd` reads the environment URL and the "Capacity: N/32" session
+  count from it. The unit passes only the path: in 2.0.0 it read the flags
+  with `EnvironmentFile=…/%i.env` and wrote the output with
+  `StandardOutput=truncate:`, and on systemd 245 (Ubuntu 20.04) neither
+  worked, `truncate:` arriving in 248 and `%i.env` not found for a path with
+  a hyphen in it.
 - The unit templates live in the skill and are linked into
   `~/.config/systemd/user` by the first `rrcd start`, which also enables
   `rrc-update.path`. That watches `~/.local/bin` and

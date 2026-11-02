@@ -2,11 +2,10 @@
 #
 # The skill directory holds SKILL.md, the rrc command, lib/rrc-lib.sh (the
 # code rrc shares with repo-remote-control-server's rrcd, which sources it
-# from here), the session unit template and state/ (per-session settings,
-# output, ~/.claude.json backups), which the installer keeps across
-# reinstalls. rrc is also put on PATH: Claude runs it by that name.
-# The unit template is not installed here: rrc session links it into
-# ~/.config/systemd/user itself, so systemd always reads the skill's copy.
+# from here) and state/ (each session's PID file and output, ~/.claude.json
+# backups), which the installer keeps across reinstalls. rrc is also put on
+# PATH: Claude runs it by that name. Sessions run as detached processes, not
+# systemd units: see the header of skill/bin/rrc.
 
 PKG="repo-remote-control-session"
 OWNS="repo-remote-control-session"
@@ -23,8 +22,8 @@ FILES=(
 # See reference/layout.md.
 STATE_DIRS=()
 
-# rrc has to run outside Claude's sandbox, which blocks the user bus,
-# ~/.config/systemd/user and ~/.claude.json. An entry with no wildcard
+# rrc has to run outside Claude's sandbox, which blocks ~/.claude.json and
+# ends every process a call started when the call ends. An entry with no wildcard
 # matches only the bare command with no arguments, so it is "rrc *". Every
 # rrc command only touches one-off sessions, so all of them are excluded.
 EXCLUDED=("rrc *")
@@ -44,8 +43,7 @@ REGISTRATIONS=(
   "sandbox.excludedCommands: ${EXCLUDED[*]}"
 )
 
-# Sessions stopped and the unit unlinked, so nothing keeps running a deleted
-# skill, and the sandbox exclusion taken out: uninstall.sh's own settings
+# Sessions stopped, so nothing keeps running a deleted skill, and the sandbox exclusion taken out: uninstall.sh's own settings
 # step only knows about hooks, and a stale "rrc *" would let any later
 # program called rrc run unsandboxed. Skipped with --keep-settings.
 pre_uninstall() {
@@ -68,17 +66,14 @@ strip_excluded() {
   printf '  ok    removed %s from sandbox.excludedCommands\n' "${EXCLUDED[*]}"
 }
 
-# The skill is readable, rrc on PATH runs, the unit template is there with
-# the lines rrc depends on (where it reads a session's settings and where it
-# writes the output rrc reads the URL from), and the exclusion is in place.
+# The skill is readable, rrc on PATH runs, setsid is there for rrc session
+# to detach a session with, and the exclusion is in place.
 verify_probe() {
-  local d="$CLAUDE_DIR/skills/$PKG" u="$CLAUDE_DIR/skills/$PKG/systemd/rrc-session@.service"
+  local d="$CLAUDE_DIR/skills/$PKG"
   [ -f "$d/SKILL.md" ] || return 1
   head -1 "$d/SKILL.md" | grep -q '^---$' || return 1
   grep -q '^name:' "$d/SKILL.md" && grep -q '^description:' "$d/SKILL.md" || return 1
   "$HOME/.local/bin/rrc" --help 2>/dev/null | grep -q '^usage: rrc' || return 1
-  grep -q '^EnvironmentFile=%h/.claude/skills/repo-remote-control-session/state/sessions/%i.env$' "$u" \
-    && grep -q '^StandardOutput=truncate:%h/.claude/skills/repo-remote-control-session/state/logs/%i.session.log$' "$u" \
-    || return 1
+  command -v setsid >/dev/null || return 1
   jq -e '.sandbox.excludedCommands | index("rrc *")' "$CLAUDE_DIR/settings.json" >/dev/null
 }
