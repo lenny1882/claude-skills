@@ -16,12 +16,15 @@ any machine, not rely on another project's setup script. And a machine that
 only wants one-off sessions was getting servers' hooks, units, update watcher
 and linger with them.
 
-- **Two packages.** `repo-remote-control-session` (1.0.0) is `rrc`:
-  `session`, `list`, `teardown`, the `rrc-session@` unit, and no hooks.
-  `repo-remote-control-server` (2.0.0) is `rrcd`: start, clone, list, url,
-  restart, restart-all, stop, disable, remove, tidy, on-update and teardown,
-  the `rrc-server@` and `rrc-update` units, and both hooks. The unit names
-  did not change, so a migration only moves the state directory.
+- **Two packages.** `repo-remote-control-session` is `rrc`: `session`,
+  `list`, `teardown`, and no hooks. In 1.0.0 each session was an
+  `rrc-session@` unit; from 1.0.1 it is a detached process with a PID file
+  (see "Session mode"). `repo-remote-control-server` is `rrcd`: start,
+  clone, list, url, restart, restart-all, stop, disable, remove, tidy,
+  on-update, serve and teardown, the `rrc-server@` and `rrc-update` units,
+  and both hooks. There is no migration from 1.1.0: it was installed on one
+  machine only, which was uninstalled and given the new packages fresh
+  (decided 2 Nov, item 9).
 - **Shared code once.** Finding the repo, trust, locking and reading the
   output are in the session package's `skill/lib/rrc-lib.sh`, which `rrc`
   and `rrcd` both source. `rrcd` loads it from the session skill's directory,
@@ -38,8 +41,10 @@ and linger with them.
   `rrcd restart *` does not match `restart-all`: the space before `*` makes
   it a whole word. Each package's `pre_uninstall` takes its own entries out,
   because `uninstall.sh` only knows about hooks; `--keep-settings` skips it.
-- **Linger** is turned on by the first `rrcd start`, not by the installer,
-  which has no step for it.
+- **Linger** is turned on by the server package's installer, in
+  `manifest.sh`'s `post_install` (kit 1.3.0), as agreed. The split first
+  built it into every `rrcd start`, because the kit then had no step after
+  installing; changed 2 Nov (item 1).
 - **No built-in clone host.** `CLONE_BASE` used to default to
   `git@ssh.bitbucket.org:<workspace>/`. A slug now needs it set in `state/config`.
 - **Messages** from the update watcher start `[rrcd]`.
@@ -827,6 +832,9 @@ handoff reconciliation" was offline):
 
 ## Build status (22 Oct)
 
+The single `repo-remote-control` package, before the split; kept as the
+record of what was decided while building it.
+
 Built and committed, with tests (`test/run-tests.sh`): `rrc` start, list,
 stop, disable, remove, clone, session, restart, restart-all, on-update and
 teardown; the server, session and update-watcher units; the `SessionStart`
@@ -835,6 +843,8 @@ hook and the commit guard; `SKILL.md` and the README. Decided while building:
 - `rrc clone --name <folder>` picks the folder name, and clone warns when
   another repo under `~/repos` has the same folder name.
 - `rrc session --name` titles are made one argument: spaces become hyphens.
+  Since session 1.0.1 they keep their spaces: the flags go to `claude` as an
+  array, not through a unit's `$RRC_ARGS`.
 - `rrc restart <dir>` restarts one server; the `[rrc]` message from the
   update watcher points at it and at `restart-all`.
 - `rrc teardown` undoes everything in systemd. `uninstall.sh` runs it through
@@ -842,7 +852,7 @@ hook and the commit guard; `SKILL.md` and the README. Decided while building:
   The request to the package-kit session was not delivered: that session had
   ended.
 
-## Next steps
+## Done by 22 Oct
 
 Done 22 Oct: `confirm.sh refused-exit` passed (a refused server exits with
 status 1, so `Restart=on-failure` retries it), and `integration.sh` passed all
@@ -853,5 +863,4 @@ a busy server was left running while the orchestrator pane got the `[rrc]`
 message. The package was then upgraded to kit v1.2.1, whose `uninstall.sh`
 runs `pre_uninstall`, so uninstalling runs `rrc teardown` first.
 
-1. Install: `./test/run-tests.sh && ./install.sh --link`, in your own terminal
-   or with `!`.
+What is still to do is under "Still open".
