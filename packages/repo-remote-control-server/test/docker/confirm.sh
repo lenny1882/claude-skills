@@ -34,8 +34,9 @@
 #   Claude's Bash tool  nothing: its sandbox blocks the Docker socket
 #
 # One run of any command writes to test/docker/results/<time>/ (gitignored):
-# summary.txt has one line per result; <name>.raw is server output as written,
-# .catv the same through cat -v, .txt with escape codes stripped.
+# run.log has everything the run printed; summary.txt has one line per result;
+# <name>.raw is server output as written, .catv the same through cat -v, .txt
+# with escape codes stripped.
 
 set -euo pipefail
 
@@ -54,6 +55,11 @@ ENV_NAME=demo
 UNIT=rrc-confirm.service
 OUT=$H/rrc-out
 RESULTS=${RESULTS:-$HERE/results/$(date +%Y%m%d-%H%M%S)}
+
+# everything printed goes to run.log too, so Claude can read a run done in your
+# terminal. The questions read /dev/tty, so this does not get in their way.
+mkdir -p "$RESULTS"
+exec > >(tee -a "$RESULTS/run.log") 2>&1
 
 box() { docker exec "$BOX" bash -c "$1"; }
 # docker exec gives no login session, so no XDG_RUNTIME_DIR and no user bus for

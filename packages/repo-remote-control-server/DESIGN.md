@@ -44,10 +44,11 @@ and linger with them.
   `git@ssh.bitbucket.org:<workspace>/`. A slug now needs it set in `state/config`.
 - **Messages** from the update watcher start `[rrcd]`.
 
-### Decided without asking (open)
+### Decided without asking, then put to the user (2 Nov)
 
-The build differs from what was agreed in these places. None has been put
-to the user one at a time yet; each stays open until it has.
+The build differed from what was agreed in these places. Each was put to the
+user one at a time on 2 Nov, and its decision follows it. The Docker run
+(item 8) is still to happen.
 
 1. **Linger.** Agreed: the installer checks `loginctl show-user -p Linger`
    and runs `loginctl enable-linger`. Built: `ensureLinger` in every
@@ -118,17 +119,66 @@ to the user one at a time yet; each stays open until it has.
    `pre_uninstall` strips the exclusions before `uninstall.sh` asks
    "Remove … entries?", so answering no still strips them. Only
    `--keep-settings` stops it.
+
+   **Decided 2 Nov: keep as built.** Why it was built this way: nobody
+   checked that `pre_uninstall` runs before the settings question. It has no
+   practical effect: uninstalling removes what installing added, and a
+   reinstall after answering no adds the same entries back. Rejected: a
+   second question in each package, and a kit `settings_unmerge` hook point
+   under the kit's question, each only to make "no" keep entries that do
+   nothing once the package is gone.
 6. **`rrc list` no longer shows servers.** Not discussed. It shows one-off
    sessions only; servers are `rrcd list`.
+
+   **Decided 2 Nov: keep as built.** Why it was built this way: servers and
+   their state moved to the server package, and nobody weighed what each
+   list should show. No program runs either list; a person or a Claude does,
+   and each knows which kind it is asking about. Both skill descriptions name
+   the other package, so a Claude asked about everything runs both.
+   Rejected: `rrcd list` running `rrc list`, `rrc list` running `rrcd list`,
+   and a pointer line in `rrc list`.
 7. **Hooks renamed.** Not discussed. `repo-remote-control-*.sh` became
    `repo-remote-control-server-*.sh`, so the `settings.json` hook entries
    change path.
+
+   **Decided 2 Nov: keep as built.** Why it was built this way: the kit names
+   installed scripts after their package, and the build followed it without
+   saying. It costs nothing extra: the settings.json paths change because the
+   package directory was renamed, which would have happened with the old
+   script names too. The old uninstaller matches `repo-remote-control` as a
+   whole word, so it leaves the new entries alone.
+
 8. **Docker scripts changed, never run.** Not discussed. `confirm.sh`'s
    `sandbox-rrc` now uses `"rrc *"` and calls `rrc session`;
    `integration.sh` installs both packages and uses `rrcd`. Neither has run.
+
+   **Decided 2 Nov: run them, all of them, once the other open items are
+   settled.** Why they were not run: Claude's Bash tool cannot reach the
+   Docker socket, and the user was not asked. Since then the shared library,
+   linger at install, kit 1.3.0, the shared ~/.claude.json lock and the
+   dropped `rrcd url` exclusion have also not met real systemd or Claude
+   Code. Both scripts first get their full output logged to
+   `results/<time>/run.log`. Then `confirm.sh sandbox-rrc`, `integration.sh`
+   and `integration.sh --app`, in the user's own terminal.
+
 9. **Smaller changes.** "no environment URL" became "no URL"; the
    migration steps in README.md were written without being discussed; the
    split was staged in git without being asked.
+
+   **Decided 2 Nov: "no URL" stays.** Why it changed: the wait loop moved
+   into the shared code, which also waits for a one-off session's
+   `https://claude.ai/code/session_…` URL, and that is not an environment
+   URL. The last error and the output path in the same message say why it
+   failed, so naming the kind of URL would add nothing.
+
+   **Decided 2 Nov: no migration steps.** 1.1.0 is installed on one machine
+   only, and that one gets uninstalled and the new packages installed fresh.
+   The paragraphs on moving from 1.1.0 are gone from both READMEs.
+
+   **Decided 2 Nov: nothing changes in git.** The staged split became
+   `3d1308b` and is pushed. Its message's lines on linger at the first start
+   and the `rrcd url *` exclusion are out of date; `455e09c` and `21c5d80`
+   say what replaced them.
 
 Written 20 Oct 2026, at the end of the first design session. Updated 22 Oct
 with the naming decision and the results of the remaining Docker checks.

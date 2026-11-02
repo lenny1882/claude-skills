@@ -11,7 +11,8 @@
 #   test/docker/integration.sh --app       # also the parts that need you in the app
 #
 # Needs the box confirm.sh builds, logged in. Results go to
-# test/docker/results/<time>/integration.txt. It ends with rrcd and rrc teardown, so
+# test/docker/results/<time>/integration.txt, and everything it printed to
+# run.log there. It ends with rrcd and rrc teardown, so
 # nothing it started keeps running.
 #
 # Where to run it:
@@ -32,6 +33,11 @@ H=/home/$DEV
 RESULTS=${RESULTS:-$HERE/results/$(date +%Y%m%d-%H%M%S)}
 APP=no
 [ "${1:-}" = --app ] && APP=yes
+
+# everything printed goes to run.log too, so Claude can read a run done in your
+# terminal. The questions read /dev/tty, so this does not get in their way.
+mkdir -p "$RESULTS"
+exec > >(tee -a "$RESULTS/run.log") 2>&1
 
 asDev() {
 	docker exec -i -u "$DEV" -w "$H" \

@@ -101,14 +101,6 @@ tarball as well as a clone — no git needed.
 Uninstalling also takes its entries out of `sandbox.excludedCommands`, unless
 `--keep-settings` is given.
 
-Coming from `repo-remote-control` 1.1.0, which this package and
-`repo-remote-control-session` replace: run that version's
-`./uninstall.sh --keep-state` first (it stops every server itself), then install both new packages, then
-move `~/.claude/skills/repo-remote-control/state/repos`, `logs` and `config`
-into `~/.claude/skills/repo-remote-control-server/state/` and start each
-server again with `rrcd start <dir>`. The unit names have not changed. Only
-the old uninstaller knows the old names.
-
 ## How it works
 
 - `rrcd start` finds the repo root, sets
