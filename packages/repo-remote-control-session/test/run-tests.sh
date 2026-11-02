@@ -236,5 +236,27 @@ out=$(RRC_SKILL_DIR="$TMP/no-lib" "$RRC" list 2>&1); rc=$?
 [ "$rc" = 1 ] && grep -q 'not installed: no .*/lib/rrc-lib.sh' <<<"$out" \
   && ok "rrc without its library says the skill is not installed" || no "rrc without its library says the skill is not installed" "rc=$rc $out"
 
+echo "the shared ~/.claude.json lock"
+# rrc and rrcd hold different package locks, so editClaudeJson takes one of
+# its own. Two writers with separate STATE directories stand in for rrc and
+# rrcd, each trusting its own repos at the same time; without the shared lock
+# a later mv drops keys the other wrote.
+LJ="$TMP/lock-claude.json"; printf '{"projects":{}}\n' >"$LJ"
+writer() { # name
+	RRC_CLAUDE_JSON="$LJ" bash -c 'PROG=$1 STATE=$2; . "$3"
+		for i in $(seq 1 15); do setTrust "/$1/$i"; done' _ "$1" "$TMP/lock-state-$1" "$LIB"
+}
+writer rrc & p1=$!; writer rrcd & p2=$!; wait "$p1" "$p2"
+n=$(jq '[.projects[] | select(.hasTrustDialogAccepted == true)] | length' "$LJ")
+[ "$n" = 30 ] && ok "two writers at once keep every trust key (30 of 30)" || no "two writers at once keep every trust key (30 of 30)" "$n of 30: $(jq -c '.projects | keys' "$LJ")"
+out=$(RRC_CLAUDE_JSON="$LJ" bash -c 'PROG=t STATE=$1; . "$2"; setTrust /after; flock -n "$CLAUDE_JSON_LOCK" true && echo free' _ "$TMP/lock-state-t" "$LIB" 2>&1)
+[ "$out" = free ] && ok "the lock is released as soon as the edit is done" || no "the lock is released as soon as the edit is done" "$out"
+flock "$CLAUDE_DIR/.rrc-claude-json.lock" sleep 1 & p=$!; sleep 0.2
+s0=$(date +%s%N)
+RRC_CLAUDE_JSON="$LJ" bash -c 'PROG=t STATE=$1; . "$2"; setTrust /waited' _ "$TMP/lock-state-t" "$LIB"
+ms=$(( ($(date +%s%N) - s0) / 1000000 )); wait "$p"
+[ "$ms" -ge 600 ] && jq -e '.projects["/waited"].hasTrustDialogAccepted' "$LJ" >/dev/null \
+  && ok "an edit waits while another holds the lock, then goes ahead" || no "an edit waits while another holds the lock, then goes ahead" "waited ${ms}ms"
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" = 0 ]
