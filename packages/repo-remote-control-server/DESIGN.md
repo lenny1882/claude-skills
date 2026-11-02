@@ -399,7 +399,7 @@ session without you starting it, titled with `--name`, applies
 refused in a repo that already has a server, so `rrc session` must check for
 one and say so.
 
-**Proposed 2 Nov, not decided: no systemd for a session.** The unit only
+**Decided and built 2 Nov: no systemd for a session.** The unit only
 exists so the `claude` process outlives the `rrc` call that started it, and
 `setsid nohup` does that (see "Detached sessions (this machine, 2 Nov
 2026)"). Both of the first real failures were in the unit file. As proposed:
@@ -411,10 +411,16 @@ exists so the `claude` process outlives the `rrc` call that started it, and
   with output to that log and stdin from `/dev/null`, and writes the PID to
   `state/sessions/<instance>.pid`. The flags are passed as an array, so
   `--name` can keep its spaces.
-- **Waiting for the URL** works as now, but "failed" means the PID is gone
+- **Waiting for the URL** works as before, but "failed" means the PID is gone
   rather than the unit failing, and the "Workspace not trusted" retry starts
-  the process again rather than the unit. That is a new library function
-  beside `waitForUrl`, which `rrcd` keeps using, so `RRC_LIB_VERSION` stays 1.
+  the process again rather than the unit. No URL in time and that retry
+  each stop the process first, so none is left holding the folder.
+  "already served" stops it too, then starts again every 15 seconds for up
+  to 300: a folder stays refused for 131 to 194 seconds after its last
+  session stops (see "Test results (Docker, 2 Nov 2026, sessions without
+  systemd)"), not the 70 measured for servers. SKILL.md gives the call a
+  600000 ms timeout to match. It is `waitForSession` in `rrc`, not the library: only `rrc` needs
+  it, and `rrcd` keeps `waitForUrl`, so `RRC_LIB_VERSION` stays 1.
 - **A PID counts as a session** only while it is alive, its
   `/proc/<pid>/cwd` is the root and its command line has `remote-control`,
   so a reused PID is never taken for one. That check also replaces
@@ -433,8 +439,12 @@ exists so the `claude` process outlives the `rrc` call that started it, and
 - **What it gives up:** a reboot ends the session, as it does now; nothing
   can restart a crashed one, as now (`Restart=no`).
 - **Tests:** a stand-in `claude` that prints a session URL and waits, for
-  start, an already-running session, a dead PID, a reused PID, list and
-  teardown. Docker: one repo with a hyphen in its path.
+  start, an already-running session, a dead PID, a reused PID, the pointer,
+  list and teardown; one checks the lock fds are closed in the session,
+  and fails if they are not. `integration.sh` starts a session in a repo
+  with hyphens in its path, checks it outlives `rrc` with no unit, stops it,
+  and starts a second one, which must have a new URL; with `--app`, it ends
+  sessions in the app in between, which is what made the 404.
 - **A folder's `bridge-pointer.json`** (see "Detached sessions"). Decided
   2 Nov: `rrc session` deletes `~/.claude/projects/<folder>/bridge-pointer.json`
   before a start when no live process owns it (its `pid` is dead or not
@@ -688,6 +698,16 @@ reloads systemd and D-Bus and starts polkit first.
 Not covered: two writers to `~/.claude.json` at once; that is covered only
 by the session package's tests.
 
+## The server unit on systemd 245 (2 Nov 2026)
+
+`rrc-server@.service` had both of the session unit's faults. Fixed 2 Nov:
+the unit runs `rrcd serve "/%I"`, which finds the repo's `.env` and output
+file from the path itself, empties the output, and `exec`s
+`claude remote-control --spawn worktree` with the flags, its output going
+there, so the unit's MainPID is still claude's for the update watcher. No
+`EnvironmentFile=`, no `StandardOutput=`, and no `%i` anywhere in the unit.
+`integration.sh`'s second server is now `client-x/my-web`, hyphens and all.
+
 ## Detached sessions (this machine, 2 Nov 2026)
 
 This machine runs Ubuntu 20.04 with systemd 245; the Docker box is 24.04
@@ -733,6 +753,45 @@ with systemd 255.
   `rrc session` hits this whichever way it starts `claude`; the 22 Oct
   Docker check opened one session per folder, so never saw it. The file is
   Claude Code's own and undocumented.
+
+## Test results (Docker, 2 Nov 2026, sessions without systemd)
+
+Both packages as built that evening, unreleased, from the checkout:
+`rrc session` as a `setsid` process with a PID file and the pointer
+cleared, `rrc-server@.service` running `rrcd serve "/%I"`, and the second
+server at `client-x/my-web`. Claude Code 2.1.305.
+
+Three runs failed on the script, not the packages:
+
+- `20261102-224149`: the second server's setup made its origin only when
+  the repo was missing. `origin/web.git` was left from runs that used
+  `client_x/web`, with another history, so the push was rejected, the
+  script stopped, and nothing it had started was torn down.
+- `20261102-224157`: the second session in `one-off-x` was refused as
+  "already served" 75 seconds after `rrc teardown`. The script waited a
+  fixed 75, from the server figure.
+- `20261102-224626`: `rrcd start` failed with "Transport endpoint is not
+  connected". After linger came back on, the script waited only for the
+  user bus socket, which was left from the instance linger-off stopped.
+
+`integration.sh` since clears what earlier runs left (both teardowns, any
+`claude remote-control`, its repos, origin and state), does the same on
+exit however it exits, and waits for the user's systemd to answer
+`running` or `degraded`.
+
+Two full runs with `--app` then passed every check, 27 of 27:
+`20261102-224852`, with the script retrying while the folder was refused,
+and `20261102-231228`, with `rrc session` waiting it out itself.
+
+| What | Result |
+| --- | --- |
+| Server checks with hyphens in the path (`client-x/my-web`) | start, list, restart, the update watcher, hooks and remove all passed |
+| `rrc session` in `one-off-x` | URL printed; process alive after `rrc` returned; no unit linked; listed; stopped by teardown |
+| A second session after `rrc teardown` | a new URL, not the last one |
+| A session ended in the app | its process exited; the next session got a new URL and answered, rather than "this session couldn't be found" |
+| How long a folder stays refused after its last session stops | after `rrc teardown`: 179 s, then 194 s; after ending it in the app: 148 s, then 131 s; leftovers killed by the cleanup: 35 s |
+
+So `rrc session` waits up to 300 seconds, raised from 240 after the 194.
 
 ## Still open
 

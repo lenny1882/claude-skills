@@ -8,11 +8,12 @@ allowed-tools:
 
 # repo-remote-control-session
 
-`rrc session` opens one Claude Remote Control session in a repo, as a systemd
-user unit, and prints its URL. The session ends when the conversation does
-and never comes back at boot. Do not reimplement its steps by hand: it trusts
-the repo, writes the unit's settings, and reads the URL from the session's
-output the same way every time.
+`rrc session` opens one Claude Remote Control session in a repo, as a
+detached process that outlives the call, and prints its URL. The session ends
+when the conversation does and never comes back at boot. Do not reimplement
+its steps by hand: it trusts the repo, clears Claude's pointer to the folder's
+last session, and reads the URL from the session's output the same way every
+time.
 
 ```bash
 rrc session <dir> [--name <title>] [--permission-mode <mode>]
@@ -33,8 +34,12 @@ the whole call is `rrc …`:
 - `rrc` by name, never `~/.local/bin/rrc`
 
 Any of those keeps the call sandboxed, and `rrc` fails with "Read-only file
-system" or "Failed to connect to bus". Read the exit code from the tool
+system". Read the exit code from the tool
 result rather than echoing it.
+
+Give the call a 600000 ms timeout. Started just after a session in the same
+repo ended, `rrc session` waits up to 5 minutes for the folder to be freed,
+and the Bash tool's default 2 minutes would cut it off.
 
 ## Give out the URL, never the name
 
@@ -51,12 +56,14 @@ that URL. The app names environments after the folder, so two repos called
 - **"has a server".** Claude refuses a single session beside a Remote Control
   server in the same folder. Give the user the server's URL from the error:
   they open a new session there.
-- **"already served".** A server or session in that folder stopped less than
-  about 70 seconds ago. Try again in a minute.
+- **"already served … still refused after 300s".** A folder is refused for up
+  to about 3 minutes after its last session stops, and `rrc session` waits
+  that out itself, saying so once. If it still fails, a server or session is
+  running there: check `rrc list`, and if nothing is listed, try again in a
+  few minutes.
 
 ## If rrc fails on the sandbox anyway
 
-"Read-only file system", "Failed to connect to bus" or "Device or resource
-busy" from a bare `rrc` call means `rrc *` is missing from
+"Read-only file system" or "Device or resource busy" from a bare `rrc` call means `rrc *` is missing from
 `sandbox.excludedCommands`: reinstalling the package adds it. Say so, and do
 not retry with the sandbox disabled.
