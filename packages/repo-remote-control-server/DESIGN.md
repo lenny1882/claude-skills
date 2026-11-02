@@ -48,7 +48,8 @@ and linger with them.
 
 The build differed from what was agreed in these places. Each was put to the
 user one at a time on 2 Nov, and its decision follows it. The Docker run
-(item 8) is still to happen.
+(item 8) passed on 2 Nov, linger at install included; see
+"Test results (Docker, 2 Nov 2026)".
 
 1. **Linger.** Agreed: the installer checks `loginctl show-user -p Linger`
    and runs `loginctl enable-linger`. Built: `ensureLinger` in every
@@ -603,16 +604,54 @@ failed only because a session in default mode can't see its own mode.
 Run any check as `test/docker/confirm.sh <check>`; `start` restarts a stopped
 container, `down` removes it.
 
+## Test results (Docker, 2 Nov 2026)
+
+Claude Code 2.1.308. The split packages, with the shared library, linger at
+install, kit 1.3.0, the shared `~/.claude.json` lock and no `rrcd url *`
+exclusion: `confirm.sh sandbox-rrc`, then `integration.sh --app`, which
+installs both packages from the checkout into the box. Everything passed.
+Evidence: `test/docker/results/20261102-194809/` (`run.log` has the whole
+run).
+
+| Check | What was done | Result |
+| --- | --- | --- |
+| sandbox-rrc | A sandboxed `claude -p` runs the bare call `rrc session /home/dev/repos/demo`, then with `excludedCommands: ["rrc *"]` | Sandboxed: user bus, unit dir and `~/.claude.json` all blocked. Excluded: all three work. |
+| install | Session package, then server package, `install.sh --yes` | Both probes passed; each added its own `excludedCommands` entries. |
+| start, start-again, list | `rrcd start` on two repos, again on one, then `rrcd list` | Root and environment URL printed; unit active and enabled; watcher enabled; second start gave the same URL without restarting; list showed both idle with URLs. |
+| session-refused | `rrc session` in a repo with a server | Refused, with the server's URL from `rrcd url`, which ran without an exclusion of its own. |
+| restart | `rrcd restart` | New URL. |
+| update | `claude install` 2.1.308 → 2.1.305 | The path unit fired, the idle server restarted on the new binary, the busy one kept running and the orchestrator pane got the `[rrcd]` message. |
+| hook-detached, guard-blocked | A session opened from the app in a server | HEAD detached with no branch name; `git commit` blocked with "Create the task's branch first". |
+| remove, teardown | `rrcd remove`, then `rrcd teardown` and `rrc teardown` | Server disabled and its trust cleared; no `rrc-*` unit left loaded. |
+
+The box's user already had linger, so that run's `post_install` took its
+already-on path. `integration.sh` now turns linger off before the install,
+and a `linger` check passes only if the install printed "turned on linger"
+and `loginctl` then says `Linger=yes`. A user turns on their own linger
+through polkit, which the box did not have, so the script installs polkitd,
+reloads systemd and D-Bus and starts polkit first.
+
+- `20261102-203153/`: polkitd installed but not yet known to systemd, so
+  `loginctl enable-linger dev` failed with "Connection timed out".
+  `post_install` warned, gave the command to run, and the install failed, as
+  designed. The script did not reload systemd and D-Bus yet.
+- `20261102-203404/`: with polkit running, the install printed "turned on
+  linger for dev" and `linger` passed, then every check without the app
+  passed again.
+
+Not covered: two writers to `~/.claude.json` at once; that is covered only
+by the session package's tests.
+
 ## Still open
 
 1. **Cloning from the box:** confirm `git@ssh.bitbucket.org` works with the
    box's key and the added host keys. Waits for the box.
 2. **On the box, once it exists:** confirm its sandbox blocks `rrcd` the way
    Docker's did, and that the installers' `excludedCommands` entries fix it
-   there too. Rerun `confirm.sh sandbox-rrc` and `integration.sh`, both
-   changed on 29 Oct for the split and not run since.
-3. **Is repo-remote-control 1.1.0 installed or running on the box?** If it
-   is, migrate it as the README's "Uninstall" section says.
+   there too. Both passed in Docker on 2 Nov.
+
+repo-remote-control 1.1.0 is installed only on the user's own machine, which
+gets it uninstalled and the new packages installed fresh (decided 2 Nov).
 
 ## Handed to the infra-box session for setup.sh
 
