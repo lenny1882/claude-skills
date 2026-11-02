@@ -32,12 +32,12 @@ echo "the sandbox exclusions and the library it needs"
 XD="$TMP/x-claude"; mkdir -p "$XD"
 printf '{"sandbox":{"enabled":true,"network":{"allowedDomains":["example.com"]},"excludedCommands":["rrc *"]},"model":"m"}\n' >"$XD/settings.json"
 CLAUDE_DIR="$XD" "$REPO/install.sh" --yes >"$TMP/out" 2>&1
-jq -e '.sandbox.excludedCommands == ["rrc *","rrcd start *","rrcd clone *","rrcd list","rrcd url *","rrcd restart *","rrcd stop *"]
+jq -e '.sandbox.excludedCommands == ["rrc *","rrcd start *","rrcd clone *","rrcd list","rrcd restart *","rrcd stop *"]
   and .sandbox.enabled == true and .sandbox.network.allowedDomains == ["example.com"] and .model == "m"' "$XD/settings.json" >/dev/null \
   && ok "install adds rrcd's exclusions beside the session package's and leaves the rest of sandbox alone" \
   || no "install adds rrcd's exclusions beside the session package's and leaves the rest of sandbox alone" "$(cat "$XD/settings.json") $(tail -3 "$TMP/out")"
-jq -e '[.sandbox.excludedCommands[] | select(test("remove|restart-all|teardown|disable"))] == []' "$XD/settings.json" >/dev/null \
-  && ok "remove, restart-all, disable and teardown are not excluded" || no "remove, restart-all, disable and teardown are not excluded" "$(jq -c .sandbox "$XD/settings.json")"
+jq -e '[.sandbox.excludedCommands[] | select(test("remove|restart-all|teardown|disable|url"))] == []' "$XD/settings.json" >/dev/null \
+  && ok "remove, restart-all, disable, teardown and url are not excluded" || no "remove, restart-all, disable, teardown and url are not excluded" "$(jq -c .sandbox "$XD/settings.json")"
 cp "$XD/settings.json" "$TMP/before"
 CLAUDE_DIR="$XD" "$REPO/install.sh" --yes >/dev/null 2>&1
 cmp -s "$TMP/before" "$XD/settings.json" \

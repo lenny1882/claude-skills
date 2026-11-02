@@ -33,8 +33,10 @@ STATE_DIRS=()
 # meant to run are excluded. remove (it can delete worktrees with work),
 # restart-all (it ends every open session) and teardown stay sandboxed, so
 # they fail from Claude and the user runs them. "rrcd restart *" does not
-# cover restart-all: the space before * makes it a whole word.
-EXCLUDED=("rrcd start *" "rrcd clone *" "rrcd list" "rrcd url *" "rrcd restart *" "rrcd stop *")
+# cover restart-all: the space before * makes it a whole word. rrcd url is
+# left out too: its only caller is rrc session, which already runs outside
+# the sandbox, and Claude gets URLs from rrcd list.
+EXCLUDED=("rrcd start *" "rrcd clone *" "rrcd list" "rrcd restart *" "rrcd stop *")
 
 # The two hooks for Remote Control server sessions. Both act only inside
 # .claude/worktrees/bridge-* and do nothing anywhere else, so they are

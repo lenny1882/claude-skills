@@ -72,9 +72,11 @@ Re-running the installer is safe and is how you upgrade. It merges into
 touches its own entries. If Claude Code is already running, `/hooks` forces a
 settings reload.
 
-The entries are the two hooks and six `sandbox.excludedCommands` entries:
-`rrcd start *`, `rrcd clone *`, `rrcd list`, `rrcd url *`, `rrcd restart *`
-and `rrcd stop *`, added next to whatever is there. The rest of `sandbox` is
+The entries are the two hooks and five `sandbox.excludedCommands` entries:
+`rrcd start *`, `rrcd clone *`, `rrcd list`, `rrcd restart *` and
+`rrcd stop *`, added next to whatever is there. `rrcd url`, which `rrc
+session` calls for a server's URL, is not among them: `rrc` already runs
+outside the sandbox, and so does everything it starts. The rest of `sandbox` is
 left as it is.
 
 Run the installer in your own terminal or with `!` in Claude Code. Claude's own
