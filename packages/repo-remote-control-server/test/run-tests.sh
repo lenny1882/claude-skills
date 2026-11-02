@@ -16,16 +16,15 @@ pass=0; fail=0
 ok(){ printf '  ok    %s\n' "$1"; pass=$((pass+1)); }
 no(){ printf '  FAIL  %s\n    %s\n' "$1" "$2"; fail=$((fail+1)); }
 
-# rrcd sources rrc from repo-remote-control-session, the package it builds
-# on, and the install fails without it. The sibling package's copy stands in
-# for the installed one.
-SESSION_RRC="$(cd "$REPO/../repo-remote-control-session/skill/bin" && pwd)/rrc"
-mkdir -p "$TMP/session-bin"; ln -s "$SESSION_RRC" "$TMP/session-bin/rrc"
-export PATH="$TMP/session-bin:$PATH"
+# rrcd sources lib/rrc-lib.sh from repo-remote-control-session, the package
+# it builds on, and the install fails without it. The sibling package's copy
+# stands in for the installed one.
+SESSION_LIB="$(cd "$REPO/../repo-remote-control-session/skill/lib" && pwd)/rrc-lib.sh"
+export RRCD_RRC_LIB="$SESSION_LIB"
 
 . "$REPO/test/installer-tests.sh"
 
-echo "the sandbox exclusions and the rrc it needs"
+echo "the sandbox exclusions and the library it needs"
 # rrcd only works outside Claude's sandbox, so the install adds the commands
 # Claude may run to sandbox.excludedCommands, next to whatever is there, and
 # the uninstall takes only those out. remove, restart-all and teardown are
@@ -52,14 +51,23 @@ jq -e '.sandbox.excludedCommands == ["rrc *"] and .sandbox.network.allowedDomain
   && ok "uninstall removes its exclusions and hooks, and keeps the session package's \"rrc *\"" \
   || no "uninstall removes its exclusions and hooks, and keeps the session package's \"rrc *\"" "$(cat "$XD/settings.json") $(tail -5 "$TMP/out")"
 ND="$TMP/no-rrc-claude"; mkdir -p "$ND"
-# PATH with every directory that holds an rrc left out, the real one included
-NORRC=$(printf '%s' "$PATH" | tr ':' '\n' | while IFS= read -r d; do [ -n "$d" ] && [ ! -e "$d/rrc" ] && printf '%s:' "$d"; done)
-out=$(PATH="${NORRC%:}" CLAUDE_DIR="$ND" "$REPO/install.sh" --yes 2>&1); rc=$?
-[ "$rc" != 0 ] && grep -q 'install repo-remote-control-session first' <<<"$out" \
-  && ok "the install fails, saying why, when rrc is not on PATH" || no "the install fails, saying why, when rrc is not on PATH" "rc=$rc $(tail -4 <<<"$out")"
-out=$(PATH="${NORRC%:}" "$REPO/skill/bin/rrcd" list 2>&1); rc=$?
-[ "$rc" = 1 ] && grep -q 'needs rrc from repo-remote-control-session' <<<"$out" \
-  && ok "rrcd without rrc on PATH says which package it needs" || no "rrcd without rrc on PATH says which package it needs" "rc=$rc $out"
+out=$(RRCD_RRC_LIB="$TMP/none/rrc-lib.sh" CLAUDE_DIR="$ND" "$REPO/install.sh" --yes 2>&1); rc=$?
+[ "$rc" != 0 ] && grep -q 'needs repo-remote-control-session' <<<"$out" \
+  && ok "the install fails, saying why, without the session package's library" \
+  || no "the install fails, saying why, without the session package's library" "rc=$rc $(tail -4 <<<"$out")"
+out=$(RRCD_RRC_LIB="$TMP/none/rrc-lib.sh" "$REPO/skill/bin/rrcd" list 2>&1); rc=$?
+[ "$rc" = 1 ] && grep -q 'needs repo-remote-control-session' <<<"$out" \
+  && ok "rrcd without the library says which package it needs" || no "rrcd without the library says which package it needs" "rc=$rc $out"
+# An rrc on PATH plays no part: the old 1.1.0 one ran its own commands when
+# sourced. This one would print and exit if anything ran it.
+mkdir -p "$TMP/old-bin"; printf '#!/usr/bin/env bash\necho OLD-RRC-RAN; exit 7\n' >"$TMP/old-bin/rrc"; chmod +x "$TMP/old-bin/rrc"
+out=$(PATH="$TMP/old-bin:$PATH" "$REPO/skill/bin/rrcd" --help 2>&1); rc=$?
+[ "$rc" = 0 ] && ! grep -q OLD-RRC-RAN <<<"$out" && grep -q '^usage: rrcd' <<<"$out" \
+  && ok "an rrc on PATH is never loaded or run" || no "an rrc on PATH is never loaded or run" "rc=$rc $out"
+sed 's/^RRC_LIB_VERSION=.*/RRC_LIB_VERSION=99/' "$SESSION_LIB" >"$TMP/lib-v99.sh"
+out=$(RRCD_RRC_LIB="$TMP/lib-v99.sh" "$REPO/skill/bin/rrcd" list 2>&1); rc=$?
+[ "$rc" = 1 ] && grep -q 'is version 99, and this rrcd needs 1' <<<"$out" \
+  && ok "a library of another version is refused, naming both versions" || no "a library of another version is refused, naming both versions" "rc=$rc $out"
 
 echo "state/ across reinstalls"
 # rrc keeps every repo's settings and output in the skill's state/, so a

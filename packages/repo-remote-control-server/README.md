@@ -12,8 +12,8 @@ on every restart and is buried in a redrawing status screen, and the app
 names environments after the folder, so two repos called `web` look the same.
 
 It builds on [`repo-remote-control-session`](../repo-remote-control-session/),
-which has to be installed first: `rrcd` sources its `rrc` for finding the
-repo, trust, the lock and reading the output. One-off sessions are that
+which has to be installed first: `rrcd` sources its `skill/lib/rrc-lib.sh`
+for finding the repo, trust, the lock and reading the output. One-off sessions are that
 package's `rrc session`.
 
 Part of [claude-skills](https://github.com/lenny1882/claude-skills), which holds several packages

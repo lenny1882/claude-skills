@@ -1,9 +1,10 @@
 # What this package installs. Sourced by install.sh and uninstall.sh.
 #
-# The skill directory holds SKILL.md, the rrc command, the session unit
-# template and state/ (per-session settings, output, ~/.claude.json backups),
-# which the installer keeps across reinstalls. rrc is also put on PATH: Claude
-# runs it by that name, and repo-remote-control-server sources it from there.
+# The skill directory holds SKILL.md, the rrc command, lib/rrc-lib.sh (the
+# code rrc shares with repo-remote-control-server's rrcd, which sources it
+# from here), the session unit template and state/ (per-session settings,
+# output, ~/.claude.json backups), which the installer keeps across
+# reinstalls. rrc is also put on PATH: Claude runs it by that name.
 # The unit template is not installed here: rrc session links it into
 # ~/.config/systemd/user itself, so systemd always reads the skill's copy.
 

@@ -224,9 +224,17 @@ grep -q 'no session is running' <<<"$out" && ok "list with nothing running says 
 out=$("$RRC" frobnicate 2>&1); rc=$?
 [ "$rc" = 2 ] && grep -q 'usage: rrc' <<<"$out" && ok "an unknown command prints usage" || no "an unknown command prints usage" "rc=$rc"
 
-out=$(bash -c '. "$1"; type -t setTrust; echo "prog=$PROG"' _ "$RRC" 2>&1); rc=$?
-[ "$rc" = 0 ] && grep -qx function <<<"$out" && grep -qx 'prog=rrc' <<<"$out" && ! grep -q usage <<<"$out" \
-  && ok "sourced, rrc defines its functions and runs nothing" || no "sourced, rrc defines its functions and runs nothing" "rc=$rc $out"
+# repo-remote-control-server's rrcd sources the library, so loading it must
+# only define things: no output, no set -e, no PROG of its own.
+LIB="$REPO/skill/lib/rrc-lib.sh"
+out=$(bash -c 'before=$-; . "$1"; type -t setTrust; type -t waitForUrl; echo "v=$RRC_LIB_VERSION prog=${PROG:-unset} opts=$([ "$-" = "$before" ] && echo same)"' _ "$LIB" 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$out" = $'function\nfunction\nv=1 prog=unset opts=same' ] \
+  && ok "loading the library defines its functions and version, and runs nothing" \
+  || no "loading the library defines its functions and version, and runs nothing" "rc=$rc $out"
+mkdir -p "$TMP/no-lib/systemd"
+out=$(RRC_SKILL_DIR="$TMP/no-lib" "$RRC" list 2>&1); rc=$?
+[ "$rc" = 1 ] && grep -q 'not installed: no .*/lib/rrc-lib.sh' <<<"$out" \
+  && ok "rrc without its library says the skill is not installed" || no "rrc without its library says the skill is not installed" "rc=$rc $out"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" = 0 ]

@@ -10,8 +10,11 @@
 # DESIGN.md has each decision and the Docker evidence behind it.
 #
 # It builds on repo-remote-control-session: finding the repo, trust, the lock
-# and reading the output are rrc's, sourced from the rrc on PATH, so they
-# exist once. This file holds what only a server needs.
+# and reading the output are in that package's lib/rrc-lib.sh, which rrc
+# sources too, so they exist once. rrcd loads it from that package's skill
+# directory, never from PATH: an old rrc on PATH (1.1.0, from the single
+# repo-remote-control package) once ran its own commands when sourced. This
+# file holds what only a server needs.
 #
 # Things that look simplifiable and are not:
 # - The URL is read from the server's output on every call, never stored: it
@@ -33,15 +36,22 @@
 
 set -euo pipefail
 
-RRC_LIB=${RRCD_RRC:-$(command -v rrc 2>/dev/null || true)}
-if [ -z "$RRC_LIB" ] || [ ! -f "$RRC_LIB" ]; then
-	printf 'rrcd: needs rrc from repo-remote-control-session, and no rrc is on PATH: install that package first\n' >&2
+PROG=rrcd
+CLAUDE_DIR=${CLAUDE_DIR:-$HOME/.claude}
+# the version of rrc-lib.sh this rrcd is written against
+NEEDS_LIB=1
+RRC_LIB=${RRCD_RRC_LIB:-$CLAUDE_DIR/skills/repo-remote-control-session/lib/rrc-lib.sh}
+if [ ! -f "$RRC_LIB" ]; then
+	printf 'rrcd: needs repo-remote-control-session, and %s is missing: install it (and uninstall repo-remote-control if it is still installed)\n' "$RRC_LIB" >&2
 	exit 1
 fi
 # shellcheck source=/dev/null
 . "$RRC_LIB"
+if [ "${RRC_LIB_VERSION:-}" != "$NEEDS_LIB" ]; then
+	printf 'rrcd: %s is version %s, and this rrcd needs %s: update repo-remote-control-session and repo-remote-control-server together\n' "$RRC_LIB" "${RRC_LIB_VERSION:-none}" "$NEEDS_LIB" >&2
+	exit 1
+fi
 
-PROG=rrcd
 SKILL=${RRCD_SKILL_DIR:-$CLAUDE_DIR/skills/repo-remote-control-server}
 STATE=${RRCD_STATE:-$SKILL/state}
 

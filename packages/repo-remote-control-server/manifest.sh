@@ -8,8 +8,10 @@
 # start links them into ~/.config/systemd/user itself, so systemd always
 # reads the skill's current copy.
 #
-# rrcd needs repo-remote-control-session's rrc on PATH: it sources it for the
-# parts both share. verify_probe fails the install without it.
+# rrcd needs repo-remote-control-session: it sources that package's
+# lib/rrc-lib.sh for the parts both share, from the session skill's
+# directory, and checks its version. verify_probe fails the install when rrcd
+# cannot load it, with rrcd's own reason.
 
 PKG="repo-remote-control-server"
 OWNS="repo-remote-control-server"
@@ -109,9 +111,10 @@ strip_excluded() {
 # depends on, the exclusions are in place, and the commit guard blocks a
 # commit on a detached HEAD in a bridge-* worktree.
 verify_probe() {
-  local d="$CLAUDE_DIR/skills/$PKG" u t rc
-  if ! command -v rrc >/dev/null 2>&1; then
-    printf '  warn  rrc is not on PATH: install repo-remote-control-session first\n'
+  local d="$CLAUDE_DIR/skills/$PKG" u t rc out
+  out=$("$HOME/.local/bin/rrcd" --help 2>&1)
+  if ! grep -q '^usage: rrcd' <<<"$out"; then
+    printf '  warn  %s\n' "$(head -1 <<<"$out")"
     return 1
   fi
   t=$(mktemp -d)
@@ -125,7 +128,6 @@ verify_probe() {
   [ -f "$d/SKILL.md" ] || return 1
   head -1 "$d/SKILL.md" | grep -q '^---$' || return 1
   grep -q '^name:' "$d/SKILL.md" && grep -q '^description:' "$d/SKILL.md" || return 1
-  "$HOME/.local/bin/rrcd" --help 2>/dev/null | grep -q '^usage: rrcd' || return 1
   u="$d/systemd/rrc-server@.service"
   grep -q '^EnvironmentFile=%h/.claude/skills/repo-remote-control-server/state/repos/%i.env$' "$u" \
     && grep -q '^StandardOutput=truncate:%h/.claude/skills/repo-remote-control-server/state/logs/%i.log$' "$u" \
