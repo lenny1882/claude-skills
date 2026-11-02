@@ -4,3 +4,4 @@ owl 1.0.0
 phase-worktrees 1.0.0
 repo-remote-control 1.1.0
 repo-remote-control-server 2.0.0
+repo-remote-control-session 1.0.0
