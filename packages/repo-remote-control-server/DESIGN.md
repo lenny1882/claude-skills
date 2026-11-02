@@ -22,7 +22,7 @@ and linger with them.
   restart, restart-all, stop, disable, remove, tidy, on-update and teardown,
   the `rrc-server@` and `rrc-update` units, and both hooks. The unit names
   did not change, so a migration only moves the state directory.
-- **Shared code once.** Finding the repo, trust, the lock and reading the
+- **Shared code once.** Finding the repo, trust, locking and reading the
   output are in the session package's `skill/lib/rrc-lib.sh`, which `rrc`
   and `rrcd` both source. `rrcd` loads it from the session skill's directory,
   not `PATH`, and checks `RRC_LIB_VERSION` (changed 2 Nov; see item 2 below).
@@ -98,6 +98,22 @@ to the user one at a time yet; each stays open until it has.
    `state/.lock`, so an `rrc session` and an `rrcd start` running at once can
    race on `~/.claude.json`. "Shared code once" above says "the lock", which
    is wrong on this.
+
+   **Decided 2 Nov: a second lock, shared, around the `~/.claude.json` edit
+   only.** Why it was built this way: the lock is a file in the package's
+   state directory, so splitting the state directories split the lock, and
+   nobody noticed. Each package keeps its own lock for its own state.
+   `editClaudeJson` in the library also takes `~/.claude/.rrc-claude-json.lock`
+   with `flock` for the backup, `jq` and `mv` (about 40 ms) and closes it
+   straight after. `flock` is released by the kernel when the process exits,
+   however it exits, so a leftover file never blocks anyone. Taken after the
+   package lock, with nothing else taken while held, so no deadlock. Rejected:
+   one lock for everything, which would make `rrc session` wait behind an
+   `rrcd start` waiting up to 2 minutes for its URL and fail at the 60 s
+   timeout; and a write, settle, check, random-backoff retry, which costs a
+   wait on every edit to detect a clash the lock prevents. Tested: two
+   writers trusting 15 repos each at once keep 30 of 30 keys with the lock,
+   15 or 16 of 30 without it.
 5. **The uninstall strip ignores the confirm prompt.** Not discussed.
    `pre_uninstall` strips the exclusions before `uninstall.sh` asks
    "Remove … entries?", so answering no still strips them. Only

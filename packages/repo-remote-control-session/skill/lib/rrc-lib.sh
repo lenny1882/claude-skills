@@ -31,6 +31,7 @@ RRC_LIB_VERSION=1
 
 CLAUDE_DIR=${CLAUDE_DIR:-$HOME/.claude}
 CLAUDE_JSON=${RRC_CLAUDE_JSON:-$HOME/.claude.json}
+CLAUDE_JSON_LOCK=${RRC_CLAUDE_JSON_LOCK:-$CLAUDE_DIR/.rrc-claude-json.lock}
 UNIT_DIR=$HOME/.config/systemd/user
 WAIT=${RRC_WAIT:-120}
 POLL=${RRC_POLL:-1}
@@ -100,9 +101,22 @@ trusted() { jq -e --arg p "$1" '.projects[$p].hasTrustDialogAccepted == true' "$
 # Back up, then jq into a temp file next to it and mv over it, so a reader
 # never sees half a file and the window for losing another claude's write is
 # as short as it can be. The last five backups are kept.
+#
+# rrc and rrcd each hold only their own package's lock, so without a lock
+# here an rrc session and an rrcd start could both read the file, and the
+# second mv would drop the first one's trust key. This one is shared by both
+# packages and held for the edit alone (about 40 ms), then closed, so no child
+# process can carry it. flock releases it when the process exits, however it
+# exits; the file left on disk means nothing. It is always taken after the
+# package's own lock and nothing is locked while holding it, so the two cannot
+# deadlock.
 editClaudeJson() { # filter, then jq args
 	local filter=$1 tmp b; shift
 	[ -s "$CLAUDE_JSON" ] || die "$CLAUDE_JSON not found: run claude once first"
+	exec 8>"$CLAUDE_JSON_LOCK"
+	if command -v flock >/dev/null 2>&1; then
+		flock -w 60 8 || die "another rrc or rrcd has been editing $CLAUDE_JSON for a minute ($CLAUDE_JSON_LOCK)"
+	fi
 	mkdir -p "$STATE/backups"
 	b="$STATE/backups/claude.json.$(date +%Y%m%d-%H%M%S).$$"
 	cp -p "$CLAUDE_JSON" "$b"
@@ -112,6 +126,7 @@ editClaudeJson() { # filter, then jq args
 	if jq "$@" "$filter" "$CLAUDE_JSON" >"$tmp" 2>/dev/null && [ -s "$tmp" ]; then
 		chmod --reference="$CLAUDE_JSON" "$tmp" 2>/dev/null || true
 		mv "$tmp" "$CLAUDE_JSON"
+		exec 8>&-
 	else
 		rm -f "$tmp"
 		die "could not update $CLAUDE_JSON; it is unchanged (backup: $b)"
