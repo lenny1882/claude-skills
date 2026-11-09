@@ -28,7 +28,12 @@ steps by hand — behaviour must stay identical between runs.
    Override with `--base <ref>`.
 3. Run with `--dry-run` first when creating more than two worktrees, show the
    user the derived branch names, then run for real.
-4. Relay the launch lines the script prints. Each phase needs its own terminal
+4. Worktrees go in `<repo>/.worktrees/` unless `--root` says otherwise: a
+   sandboxed session can only write inside its own repo, so a directory beside
+   the repo fails with "Read-only file system". The script adds
+   `/.worktrees/` to `.git/info/exclude` so the main checkout's `git status`
+   stays clean.
+5. Relay the launch lines the script prints. Each phase needs its own terminal
    and its own `claude` session.
 
 ## Removing

@@ -55,11 +55,11 @@ has "$TMP/o" "gsd/phase-2-plain-phase" "no ticket id falls back to gsd/phase-<n>
 ( cd "$PROJ" && "$SCRIPT" --dry-run 9 ) >"$TMP/o" 2>&1
 [ -s "$TMP/o" ] && grep -qiv "^$" "$TMP/o" && ok "an unknown phase is rejected" \
   || no "an unknown phase is rejected" "said nothing"
-[ ! -d "$TMP/proj-worktrees" ] && ok "--dry-run creates nothing" || no "--dry-run creates nothing" "worktree dir appeared"
+[ ! -d "$PROJ/.worktrees" ] && ok "--dry-run creates nothing" || no "--dry-run creates nothing" "worktree dir appeared"
 
 echo "create and remove"
 ( cd "$PROJ" && "$SCRIPT" 1 ) >"$TMP/o" 2>&1
-WT="$TMP/proj-worktrees/p1-new-settings-page"
+WT="$PROJ/.worktrees/p1-new-settings-page"
 [ -d "$WT" ] && ok "creates the worktree" || no "creates the worktree" "$(tail -3 "$TMP/o")"
 [ -d "$WT/.claude" ] && [ ! -L "$WT/.claude" ] \
   && ok ".claude is a real directory, not a symlink" || no ".claude is a real directory, not a symlink" "wrong type — this is the bug the skill exists to avoid"
@@ -67,6 +67,14 @@ git -C "$PROJ" branch --list 'unit/*' | grep -q ABC-123 \
   && ok "the branch exists" || no "the branch exists" "no unit/ branch"
 grep -q '^\.claude/$' "$PROJ/.git/info/exclude" 2>/dev/null \
   && ok ".claude/ added to info/exclude" || no ".claude/ added to info/exclude" "$(cat "$PROJ/.git/info/exclude" 2>/dev/null | tail -2)"
+grep -qx '/.worktrees/' "$PROJ/.git/info/exclude" 2>/dev/null \
+  && ok "the worktree root added to info/exclude" || no "the worktree root added to info/exclude" "$(tail -4 "$PROJ/.git/info/exclude" 2>/dev/null)"
+[ -z "$(git -C "$PROJ" status --porcelain)" ] \
+  && ok "git status in the main checkout stays clean" || no "git status in the main checkout stays clean" "$(git -C "$PROJ" status --porcelain | head -3)"
+( cd "$PROJ" && "$SCRIPT" 2 ) >"$TMP/o" 2>&1
+[ "$(grep -cx '/.worktrees/' "$PROJ/.git/info/exclude")" = 1 ] && [ "$(grep -cx '.claude/' "$PROJ/.git/info/exclude")" = 1 ] \
+  && ok "a second run adds no duplicate exclude lines" || no "a second run adds no duplicate exclude lines" "$(cat "$PROJ/.git/info/exclude")"
+( cd "$PROJ" && "$SCRIPT" --remove 2 ) >"$TMP/o" 2>&1
 
 echo "dirty worktrees are protected"
 echo scratch > "$WT/uncommitted.txt"
@@ -76,6 +84,16 @@ echo scratch > "$WT/uncommitted.txt"
 [ ! -d "$WT" ] && ok "--force removes it" || no "--force removes it" "still there"
 git -C "$PROJ" branch --list 'unit/*' | grep -q ABC-123 \
   && ok "removing keeps the branch" || no "removing keeps the branch" "branch was deleted — committed work would be lost"
+
+echo "a root outside the repo"
+( cd "$PROJ" && "$SCRIPT" --root "$TMP/outside" 2 ) >"$TMP/o" 2>&1
+[ -d "$TMP/outside/p2-plain-phase" ] && ok "--root outside the repo still works" || no "--root outside the repo still works" "$(tail -3 "$TMP/o")"
+grep -q 'outside' "$PROJ/.git/info/exclude" \
+  && no "an outside root is not excluded" "$(grep outside "$PROJ/.git/info/exclude")" || ok "an outside root is not excluded"
+( cd "$PROJ" && "$SCRIPT" --remove 2 ) >"$TMP/o" 2>&1
+[ ! -d "$TMP/outside/p2-plain-phase" ] \
+  && ok "--remove finds a worktree outside the default root by its branch" \
+  || no "--remove finds a worktree outside the default root by its branch" "$(cat "$TMP/o")"
 
 echo "installer — the skill directory"
 "$REPO/install.sh" --link --yes >/dev/null 2>&1

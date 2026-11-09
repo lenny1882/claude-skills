@@ -41,8 +41,12 @@ script directly:
     ~/.claude/skills/phase-worktrees/bin/phase-worktrees.sh --remove [--force] 1 2 4
 
 Every path is derived at runtime from `git rev-parse`; nothing is hardcoded, so
-it works in any GSD project. Worktrees go outside the repo, at
-`<repo-parent>/<repo-name>-worktrees/p<n>-<slug>`, so git never sees them.
+it works in any GSD project. Worktrees go inside the repo, at
+`<repo>/.worktrees/p<n>-<slug>`, because a sandboxed session can only write
+inside its own repo; a directory beside it fails with "Read-only file system".
+The script adds `/.worktrees/` to `.git/info/exclude`, so `git status` in the
+main checkout does not list them. `--root` puts them elsewhere, and
+`--remove` finds a phase's worktree by its branch wherever it is.
 Branches come from the phase directory name — `01-new-settings-page-abc-123`
 becomes `unit/ABC-123-new-settings-page-phase`, and phases without a ticket
 id fall back to `gsd/phase-<n>-<slug>`.

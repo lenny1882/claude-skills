@@ -5,7 +5,15 @@ a client app project. Skill version at the time: 1.0.0.
 
 ---
 
-## 1. Default the worktree root to `${project_root}/.worktrees` — **OPEN**
+## 1. Default the worktree root to `${project_root}/.worktrees` — **DONE 9 Nov 2026, raised 21 Aug 2026**
+
+**Done 9 Nov 2026**, not yet released. The default is `<repo>/.worktrees`; a
+relative `--root` is taken from the repo root. `/.worktrees/` (the root,
+anchored) goes into `info/exclude` alongside `.claude/`, and only when the root
+is inside the repo. `--remove` also finds a phase's worktree by its branch, so
+worktrees made at the old default can still be removed. The `SKILL.md`
+"outside the repo so git never sees them" line was in `README.md`, and is
+replaced there; `SKILL.md` now gives the reason for the new location.
 
 **Session: 21 Aug 2026**, creating a worktree for phase 2 of
 a client app project (`.planning/phases/02-user-permissions`).
@@ -47,3 +55,23 @@ inside the repo, those nest two levels deep in the working directory. Untested
 whether the sandbox's read-only remount of `.claude/skills`, `.claude/hooks` and
 `.claude/commands` in the main checkout extends to a nested `.claude/` and blocks
 them.
+
+**Tested 9 Nov 2026**, from a sandboxed session (Bash tool) in
+`claude-skills`:
+
+- `git worktree add .worktrees/probe` from the main checkout worked, and so
+  did `git worktree add` into `.worktrees/probe/.claude/worktrees/agent`.
+- The sandbox's read-only mounts are exact paths under the session's own
+  working directory (`<cwd>/.claude/skills`, `<cwd>/.claude/hooks`, parts of
+  `<cwd>/.git`), read from `/proc/self/mountinfo`. A nested `.claude/skills`,
+  `.claude/hooks` and `.claude/commands` in a throwaway repo inside the working
+  directory were all writable.
+- `<cwd>/.claude/worktrees` was writable, though `.claude` itself is listed as
+  a read-only mount. That is where a session started in a phase worktree puts
+  its subagent worktrees.
+- `.git/info/exclude` was writable.
+- With `.worktrees/` not excluded, `git status` listed it as untracked.
+
+Still untested: a real `/gsd:execute-phase` run in a session started inside a
+phase worktree, where Claude Code creates the subagent worktrees itself rather
+than through Bash.

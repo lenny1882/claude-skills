@@ -25,7 +25,8 @@ USAGE
 OPTIONS
   --base <ref>     Base for new branches (default: current branch)
   --root <dir>     Worktree parent directory
-                   (default: <repo-parent>/<repo-name>-worktrees)
+                   (default: <repo>/.worktrees, kept out of git status
+                   through .git/info/exclude)
   --remove         Remove the worktrees for these phases instead of creating
   --force          With --remove, remove even with uncommitted changes
   --dry-run        Print what would happen, change nothing
@@ -92,7 +93,6 @@ run() {
 
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) \
   || die "not inside a git repository"
-REPO_NAME=${REPO_ROOT##*/}
 GIT_COMMON=$(cd "$REPO_ROOT" && git rev-parse --git-common-dir)
 case "$GIT_COMMON" in
   /*) ;;
@@ -103,7 +103,16 @@ PHASE_DIR_ROOT="$REPO_ROOT/.planning/phases"
 [ -d "$PHASE_DIR_ROOT" ] \
   || die "no .planning/phases in $REPO_ROOT — is this a GSD project?"
 
-[ -n "$WT_ROOT" ] || WT_ROOT="${REPO_ROOT%/*}/${REPO_NAME}-worktrees"
+# Inside the repo by default. The old default, <repo-parent>/<repo-name>-worktrees,
+# was outside every sandboxed session's writable area: mkdir and git worktree
+# add both failed with "Read-only file system", so the skill only worked with
+# --root. Inside the repo, git would list the whole worktree as untracked, so
+# exclude_entries adds the root to info/exclude alongside .claude/.
+[ -n "$WT_ROOT" ] || WT_ROOT="$REPO_ROOT/.worktrees"
+case "$WT_ROOT" in
+  /*) ;;
+  *) WT_ROOT="$REPO_ROOT/$WT_ROOT" ;;
+esac
 
 if [ -z "$BASE" ]; then
   BASE=$(cd "$REPO_ROOT" && git rev-parse --abbrev-ref HEAD)
@@ -160,6 +169,16 @@ derive_names() {
 remove_phase() {
   derive_names "$1"
 
+  # A worktree made before the default root moved into the repo, or with a
+  # different --root, is not at WT_PATH. Find it by the branch it has checked
+  # out instead, so --remove still works on it.
+  if [ ! -d "$WT_PATH" ]; then
+    local found
+    found=$(git -C "$REPO_ROOT" worktree list --porcelain | awk -v b="refs/heads/$BRANCH" '
+      /^worktree / { p = substr($0, 10) }
+      $0 == "branch " b { print p; exit }')
+    [ -n "$found" ] && [ -d "$found" ] && WT_PATH=$found
+  fi
   if [ ! -d "$WT_PATH" ]; then
     say "  phase $NUM: no worktree at $WT_PATH — nothing to remove"
     return 0
@@ -256,19 +275,30 @@ create_phase() {
   CREATED+=("$NUM|$BRANCH|$WT_PATH")
 }
 
-# Add .claude/ to the shared exclude file once.
-exclude_claude_dir() {
-  local ex="$GIT_COMMON/info/exclude"
-  if [ -f "$ex" ] && grep -qxF '.claude/' "$ex"; then
-    return 0
-  fi
-  if [ "$DRY" -eq 1 ]; then
-    say "  would append '.claude/' to $ex"
-    return 0
-  fi
-  mkdir -p "${ex%/*}"
-  printf '\n# Per-worktree Claude Code config (phase-worktrees)\n.claude/\n' >>"$ex"
-  say "  added '.claude/' to $ex"
+# Add .claude/ to the shared exclude file once, and the worktree root too when
+# it is inside the repo — otherwise git status in the main checkout lists every
+# worktree as untracked. The root is anchored with a leading slash so only that
+# directory is excluded, not any directory of the same name further down.
+exclude_entries() {
+  local ex="$GIT_COMMON/info/exclude" entry entries=(".claude/")
+  case "$WT_ROOT/" in
+    "$REPO_ROOT"/?*) entries+=("/${WT_ROOT#"$REPO_ROOT"/}/") ;;
+  esac
+  for entry in "${entries[@]}"; do
+    if [ -f "$ex" ] && grep -qxF "$entry" "$ex"; then
+      continue
+    fi
+    if [ "$DRY" -eq 1 ]; then
+      say "  would append '$entry' to $ex"
+      continue
+    fi
+    mkdir -p "${ex%/*}"
+    case "$entry" in
+      .claude/) printf '\n# Per-worktree Claude Code config (phase-worktrees)\n%s\n' "$entry" >>"$ex" ;;
+      *)        printf '\n# Phase worktrees inside the repo (phase-worktrees)\n%s\n' "$entry" >>"$ex" ;;
+    esac
+    say "  added '$entry' to $ex"
+  done
 }
 
 # ------------------------------------------------------------------ main ----
@@ -305,7 +335,7 @@ fi
 
 CREATED=()
 for d in "${DIRS[@]}"; do create_phase "$d"; done
-exclude_claude_dir
+exclude_entries
 
 say ""
 say "Launch each phase in its own terminal:"
