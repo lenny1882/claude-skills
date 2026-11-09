@@ -68,8 +68,8 @@ which of four faults it has, and redoes the answer to fix that fault:
    The redo takes them one per reply and waits for the answer before the next.
    A run of commands meant to be pasted as one is not split.
 
-This takes in item 5's splitting. Whether item 5 goes altogether, or stays
-for its "more detail per item" part, is still to decide.
+This takes in item 5's splitting when the bundling was a fault. Item 5 was
+kept, as `/one-by-one`, for lists that are not.
 
 **Why.** In 2,140 typed user messages from 12 Oct to 9 Nov 2026, the four
 faults drew about 20, 12, 8 and 7 complaints. Examples, with project names
@@ -130,7 +130,11 @@ still to choose (`/compare`, `/side-by-side`).
 **Why.** The writing rule says what side-by-side looks like when asked for, but
 there is no short way to ask for a comparison of things already on screen.
 
-## 5. Go through a list one item at a time, with more detail — **OPEN, raised 26 Oct 2026**
+## 5. Go through a list one item at a time, with more detail — **DONE 9 Nov 2026, raised 26 Oct 2026**
+
+**Built 9 Nov 2026** as `packages/one-by-one`, version 0.1.0, not yet
+released. Kept after `mate` took in the splitting, for lists that are not a
+fault. Decided: one item per reply, waiting for the answer before the next.
 
 **What.** A skill that takes a list of questions or points already given and
 deals with each one on its own, with more detail than the list had: what it is,
