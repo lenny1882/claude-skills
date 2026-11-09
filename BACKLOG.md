@@ -36,8 +36,9 @@ decision ids, requirement ids.
 
 **Why.** Between 28 Sep and 26 Oct the user asked about fifteen times for a
 question set or list to be given again in full. A `Stop` hook that blocks bare
-references is being built in `claude-hooks`' `claude-guard-hooks`; `/again`
-repairs a reply that has already gone out.
+references ships in `claude-hooks`' `claude-guard-hooks` as
+`check-bare-references.sh`; `/again` repairs a reply that has already gone
+out.
 
 ## 3. `mate`, `bruv`, `dude` — redo the last answer that missed the point — **OPEN, raised 26 Oct 2026, widened 9 Nov 2026**
 
@@ -134,42 +135,3 @@ before the next.
 
 **Why.** A list of several questions or points answered together gets each one
 too briefly; taking them separately gives each one the detail it needs.
-
-## 6. Recurring faults to consider for hooks — **OPEN, raised 9 Nov 2026**
-
-**What.** Faults found in the same review that are not `mate`'s, as
-candidates for hooks that stop them before the reply goes out. Most already
-have a rule in `~/.claude/CLAUDE.md`, and the complaints show that the rules
-are not always followed. Counts are rough, from keyword hits only.
-
-- **Steps skipped, or fixes drip-fed one at a time** (about 10). For example,
-  a command given without how to get the key it needs. `/owl` repairs it
-  after the fact. A hook would have to spot a command for the user with no
-  "where it runs" or no key step.
-- **Re-raising items the user had parked or dropped** (about 6). For example,
-  a dropped option offered again, or an item marked "this will wait" flagged
-  again. A hook could check replies against a per-project list of parked and
-  dropped items.
-- **Unasked destructive or state-changing actions** (about 6): removing,
-  amending, reverting, or starting a session hours after the request. A
-  `PreToolUse` hook on `git commit --amend`, `rm`, and edits to planning docs
-  could ask first.
-- **Not watching a run the user started** (about 5). "Tell me when it
-  finishes" was said for a script that logs where Claude can read it. A
-  `Stop` hook could block a reply that hands over a logging command without
-  arming a monitor.
-- **Giving up on a sandbox write error when the machine notes say how to get
-  round it** (about 4, three on 26 Oct). A `PostToolUse` hook on a failed
-  Bash call naming a write path could point at
-  `~/.claude/reference/this-machine.md`.
-- **Stopping to ask when the step could be done** (about 5). "Then do it."
-  "Why are you stopping to ask?"
-- **"What's left" lists that change each time they are asked for** (about 3).
-  The full-sweep rule exists. A hook could require the reply to name what was
-  swept.
-- **A script handed over that does not log where Claude can read it**
-  (about 3). A `PreToolUse` hook on writing a script for the user could check
-  for a log path.
-
-**Why.** Each of these drew repeated complaints in the four weeks reviewed,
-often with "how many times" in the complaint.
