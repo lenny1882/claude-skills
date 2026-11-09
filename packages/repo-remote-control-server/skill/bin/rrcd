@@ -391,16 +391,49 @@ joined() { local out="" x; for x in "$@"; do out+="${out:+; }$x"; done; printf '
 # Undo what rrcd set up in systemd. The kit's uninstall.sh cannot do this
 # itself, so manifest.sh's pre_uninstall runs it first; state/ stays until
 # uninstall removes it. Sessions are rrc's, and rrc teardown's.
+# The PATH the user's login shell builds. systemd starts a server with the
+# user manager's PATH and never runs ~/.profile or ~/.bashrc, so without this
+# a server's sessions, and everything they start, miss whatever those add:
+# ~/.local/bin (rrcd and claude by name, which the sandbox exclusions need),
+# nvm's node, SDKs, asdf shims. -l reads ~/.profile, which on Ubuntu runs
+# ~/.bashrc; -i gets past .bashrc's return for shells that aren't
+# interactive. setsid: no terminal for an interactive shell to take over.
+# The PATH goes to a file, not a pipe, so a process .bashrc leaves running
+# can't keep this waiting; the shell's own output is thrown away; and after
+# RRCD_SHELL_TIMEOUT seconds it is given up. Prints nothing if it failed.
+loginPath() {
+	local f
+	f=$(mktemp "$STATE/logs/.path.XXXXXX") || return 0
+	(cd "$HOME" && setsid -w timeout "${RRCD_SHELL_TIMEOUT:-20}" bash -l -i -c 'printf "%s" "$PATH" >"$1"' rrcd-path "$f") \
+		</dev/null >/dev/null 2>&1 || true
+	cat "$f" 2>/dev/null || true
+	rm -f "$f"
+}
+
+# A PATH with each directory once, at its first place: rrcd serve, the
+# user's ~/.profile and the manager can each add ~/.local/bin.
+dedupePath() {
+	local out="" d parts
+	IFS=: read -ra parts <<<"$1"
+	for d in "${parts[@]}"; do
+		[ -n "$d" ] || continue
+		case ":$out:" in *":$d:"*) ;; *) out+="${out:+:}$d" ;; esac
+	done
+	printf '%s' "$out"
+}
+
 # What rrc-server@.service runs. It finds the repo's flags and output file
 # itself, from the path the unit passes, and becomes the server with exec,
 # so the unit's MainPID is claude's (runningExe reads it). See the unit for
 # why this is not EnvironmentFile= and StandardOutput=truncate:.
 cmdServe() {
-	local root=${1:-} inst env log
+	local root=${1:-} inst env log p
 	[ -n "$root" ] && [ -d "$root" ] || die "serve: no such directory: $root"
 	inst=$(instanceOf "$root"); env=$(envFileOf "$inst"); log=$(logFileOf "$inst")
 	[ -f "$env" ] || die "serve: $root has no settings ($env): run rrcd start $root"
 	mkdir -p "$STATE/logs"
+	p=$(loginPath)
+	PATH=$(dedupePath "$HOME/.local/bin:${p:-$PATH}"); export PATH
 	cd "$root"
 	exec >"$log" 2>&1 </dev/null
 	# shellcheck disable=SC2046  # RRC_ARGS is one argument per word

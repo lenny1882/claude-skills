@@ -395,11 +395,11 @@ grep -qx 'ExecStartPre=-%h/.local/bin/rrcd tidy "/%I"' "$U" && grep -qx 'Restart
 grep -qx 'ExecStart=%h/.local/bin/rrcd serve "/%I"' "$U" && ! grep -v '^#' "$U" | grep -qE '%i|^EnvironmentFile=|^Standard(Output|Error)=' \
   && ok "the server unit runs rrcd serve with the repo's path, and names no file by %i" \
   || no "the server unit runs rrcd serve with the repo's path, and names no file by %i" "$(grep -vE '^#' "$U")"
-# The user manager's PATH has no ~/.local/bin, and the sandbox exclusions
-# match only the bare name rrcd (infra-box, 3 Nov).
-grep -qx 'Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin' "$U" \
-  && ok "the server unit puts ~/.local/bin first on its sessions' PATH" \
-  || no "the server unit puts ~/.local/bin first on its sessions' PATH" "$(grep -E '^Environment' "$U")"
+# A PATH= line in the unit replaces the manager's PATH (systemd can't expand
+# $PATH there), and the login shell rrcd serve runs would start from it.
+! grep -qE '^Environment=.*PATH=' "$U" \
+  && ok "the server unit sets no PATH: rrcd serve builds it" \
+  || no "the server unit sets no PATH: rrcd serve builds it" "$(grep -E '^Environment' "$U")"
 
 # rrcd serve, with a stand-in claude that records where and how it ran
 cat >"$STUB/bin/claude" <<'EOF'
@@ -419,6 +419,49 @@ out=$(cd / && RRCD_CLAUDE="$STUB/bin/claude" "$RRC" serve "$HY" 2>&1); rc=$?
 [ "$(cat "$RRCD_STATE/logs/$HI.log")" = "the server's output" ] && [ -z "$out" ] \
   && ok "serve empties the output file and sends claude's output there" \
   || no "serve empties the output file and sends claude's output there" "$(cat "$RRCD_STATE/logs/$HI.log") / $out"
+# serve's PATH comes from a login shell: ~/.profile, which runs a ~/.bashrc
+# that returns early unless interactive, as Ubuntu's does. The .bashrc also
+# prints, and leaves a process running that holds its stdout; neither may
+# reach the server's log or hold serve up.
+cat >"$STUB/bin/claude" <<'EOF'
+#!/usr/bin/env bash
+printf '%s' "$PATH" >"$STUB/serve.path"; echo "the server's output"
+EOF
+chmod +x "$STUB/bin/claude"
+cat >"$HOME/.profile" <<'EOF'
+[ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc"
+PATH="$HOME/.local/bin:$HOME/from-profile:$PATH:$HOME/from-profile"
+EOF
+cat >"$HOME/.bashrc" <<'EOF'
+case $- in *i*) ;; *) return ;; esac
+echo "noise from .bashrc"
+sleep 30 & echo $! >"$HOME/bashrc-bg.pid"
+PATH="$HOME/from-bashrc:$PATH"
+EOF
+t0=$SECONDS
+out=$(cd / && RRCD_CLAUDE="$STUB/bin/claude" "$RRC" serve "$HY" 2>&1); rc=$?
+took=$((SECONDS - t0)); sp=$(cat "$STUB/serve.path" 2>/dev/null)
+[ "$rc" = 0 ] && [[ $sp == "$HOME/.local/bin:$HOME/from-profile:$HOME/from-bashrc:"* ]] && [[ ":$sp:" == *":$STUB/bin:"* ]] \
+  && ok "serve runs claude with the login shell's PATH, ~/.profile's and the interactive .bashrc's, ~/.local/bin first" \
+  || no "serve runs claude with the login shell's PATH, ~/.profile's and the interactive .bashrc's, ~/.local/bin first" "rc=$rc $out PATH=$sp"
+# ~/.profile adds ~/.local/bin as rrcd serve does, and from-profile twice
+[ "$(tr : '\n' <<<"$sp" | sort | uniq -d)" = "" ] && [ -n "$sp" ] \
+  && ok "serve's PATH names each directory once, at its first place" \
+  || no "serve's PATH names each directory once, at its first place" "duplicates: $(tr : '\n' <<<"$sp" | sort | uniq -d | tr '\n' ' ')"
+[ "$(cat "$RRCD_STATE/logs/$HI.log")" = "the server's output" ] && [ -z "$out" ] && [ "$took" -lt 15 ] \
+  && ok "the shell's output stays out of the log, and a process it leaves running doesn't hold serve up" \
+  || no "the shell's output stays out of the log, and a process it leaves running doesn't hold serve up" "took ${took}s log=$(cat "$RRCD_STATE/logs/$HI.log") out=$out"
+kill "$(cat "$HOME/bashrc-bg.pid" 2>/dev/null)" 2>/dev/null
+# A .profile that never finishes: serve gives up on it and keeps its own PATH
+printf 'sleep 30\n' >"$HOME/.profile"; rm -f "$HOME/.bashrc" "$STUB/serve.path"
+t0=$SECONDS
+out=$(cd / && RRCD_SHELL_TIMEOUT=1 RRCD_CLAUDE="$STUB/bin/claude" "$RRC" serve "$HY" 2>&1); rc=$?
+took=$((SECONDS - t0)); sp=$(cat "$STUB/serve.path" 2>/dev/null)
+[ "$rc" = 0 ] && [ "$took" -lt 10 ] && [[ $sp == "$HOME/.local/bin:"* ]] && [[ ":$sp:" == *":$STUB/bin:"* ]] \
+  && ok "a login shell that hangs is given up, and serve keeps its own PATH, ~/.local/bin first" \
+  || no "a login shell that hangs is given up, and serve keeps its own PATH, ~/.local/bin first" "rc=$rc took ${took}s PATH=$sp $out"
+rm -f "$HOME/.profile"; ls "$RRCD_STATE/logs"/.path.* >/dev/null 2>&1 \
+  && no "serve leaves no PATH file behind" "$(ls -a "$RRCD_STATE/logs")" || ok "serve leaves no PATH file behind"
 NOSET=$(repo "$HOME/repos/never-started")
 out=$("$RRC" serve "$NOSET" 2>&1); rc=$?
 [ "$rc" = 1 ] && grep -q 'has no settings' <<<"$out" \

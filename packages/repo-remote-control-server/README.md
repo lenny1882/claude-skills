@@ -116,6 +116,14 @@ Uninstalling also takes its entries out of `sandbox.excludedCommands`, unless
   `StandardOutput=truncate:`, and on systemd 245 (Ubuntu 20.04) neither
   worked, `truncate:` arriving in 248 and `%i.env` not found for a path with
   a hyphen in it.
+- Before that `exec`, `rrcd serve` runs `bash -l -i` once and takes its PATH,
+  with `~/.local/bin` first and each directory named once, so a server's sessions, and the sessions and
+  servers they start, find what `~/.profile` and `~/.bashrc` put on PATH, as
+  a terminal's `claude` does. The shell has no terminal, its output is thrown
+  away, and after 20 seconds (`RRCD_SHELL_TIMEOUT`) it is given up, leaving
+  the systemd user manager's PATH with `~/.local/bin` in front. Your whole
+  `.bashrc` runs at every server start. The unit sets no PATH of its own:
+  systemd can't add to `$PATH` there, only replace it.
 - The unit templates live in the skill and are linked into
   `~/.config/systemd/user` by the first `rrcd start`, which also enables
   `rrc-update.path`. That watches `~/.local/bin` and

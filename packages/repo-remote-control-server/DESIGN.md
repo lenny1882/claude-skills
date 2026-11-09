@@ -798,6 +798,29 @@ and `20261102-231228`, with `rrc session` waiting it out itself.
 
 So `rrc session` waits up to 300 seconds, raised from 240 after the 194.
 
+## The servers' PATH (9 Nov 2026)
+
+2.0.2 put `Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin` in
+the unit so sessions could run `rrcd` by name (infra-box, 3 Nov). systemd
+can't expand `$PATH` in `Environment=`, so that replaced the user manager's
+PATH: no `/usr/sbin`, `/sbin` or `/snap/bin`, and nothing from `~/.profile`
+or `~/.bashrc` (nvm's node, SDKs, asdf shims) for the servers' sessions or
+anything they start. Changed, not yet released: the line is gone, and
+`rrcd serve` runs `bash -l -i` once per start and takes its PATH, with
+`~/.local/bin` first. Considered and not taken: a fixed list of directories
+in `state/config` (kept up by hand), the caller's PATH stored at
+`rrcd start` (stale after `nvm` changes the default, and empty from cron),
+and `EnvironmentFile=` or drop-ins (systemd replaces `PATH`, never adds to
+it, and runs no shell code). With this machine's `.bashrc` the shell took
+0.1 s. BACKLOG.md item 1 has what aws-workspace has to change.
+
+Docker, 9 Nov, with this change: `sandbox-rrc` passed, `integration.sh
+--app` passed 27 of 27, and a running server's `/proc/<pid>/environ` had
+`~/.local/bin` first, a line added below `.bashrc`'s interactive check,
+`/usr/sbin`, and `rrcd` found by name. It also had `~/.local/bin` three
+times (`rrcd serve`, the box user's `.profile`, and the shell); `rrcd serve`
+now drops repeats, keeping each directory at its first place.
+
 ## Still open
 
 1. **Cloning from the box:** confirm `git@ssh.bitbucket.org` works with the
@@ -805,6 +828,8 @@ So `rrc session` waits up to 300 seconds, raised from 240 after the 194.
 2. **On the box, once it exists:** confirm its sandbox blocks `rrcd` the way
    Docker's did, and that the installers' `excludedCommands` entries fix it
    there too. Both passed in Docker on 2 Nov.
+3. **The login-shell PATH:** passed in Docker 9 Nov; the release and the
+   second message to aws-workspace are still to do (BACKLOG.md item 1).
 
 repo-remote-control 1.1.0 is installed only on the user's own machine, which
 gets it uninstalled and the new packages installed fresh (decided 2 Nov).
