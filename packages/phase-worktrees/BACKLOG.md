@@ -132,7 +132,11 @@ started inside `<repo>/.worktrees/p1-two-files`.
   nothing there. Still to decide: whether to switch to a symlink. That is a
   design choice with its own costs — a `.claude/` tracked in git, and
   sessions sharing one `settings.local.json` — not a fault.
-- **`--remove` refuses GSD's own leftovers.** After the run the phase worktree
+- **`--remove` refuses GSD's own leftovers — fixed 9 Nov 2026, not yet
+  released.** `real_changes` leaves an untracked `.planning/HANDOFF.json` and a
+  `config.json` that differs only in `_auto_chain_active` or formatting out of
+  the count; with only those present, `--remove` says it is discarding them and
+  removes the worktree. Found in the run: After the run the phase worktree
   held a modified `.planning/config.json` (GSD added
   `"_auto_chain_active": false` and a final newline) and an untracked
   `.planning/HANDOFF.json`. `--remove` counts those as uncommitted work and

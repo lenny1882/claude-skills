@@ -166,6 +166,29 @@ derive_names() {
 
 # ---------------------------------------------------------------- remove ----
 
+# git status --porcelain for a worktree, minus what GSD itself leaves behind
+# after a session: an untracked .planning/HANDOFF.json (resume state for
+# /gsd:resume-work), and a .planning/config.json whose only change is the
+# workflow._auto_chain_active flag or formatting. Those are not work, and
+# counting them made --remove refuse every worktree a GSD session had run in,
+# leaving --force — which also throws away real changes — as the only way out.
+real_changes() {
+  local wt=$1 line
+  git -C "$wt" status --porcelain 2>/dev/null | while IFS= read -r line; do
+    case "$line" in
+      "?? .planning/HANDOFF.json") continue ;;
+      " M .planning/config.json")
+        if command -v jq >/dev/null 2>&1 \
+           && [ "$(git -C "$wt" show HEAD:.planning/config.json 2>/dev/null | jq -S 'del(.workflow._auto_chain_active)' 2>/dev/null)" \
+              = "$(jq -S 'del(.workflow._auto_chain_active)' "$wt/.planning/config.json" 2>/dev/null)" ] \
+           && [ -n "$(jq -S . "$wt/.planning/config.json" 2>/dev/null)" ]; then
+          continue
+        fi ;;
+    esac
+    printf '%s\n' "$line"
+  done
+}
+
 remove_phase() {
   derive_names "$1"
 
@@ -184,8 +207,9 @@ remove_phase() {
     return 0
   fi
 
-  local dirty unmerged=0
-  dirty=$(git -C "$WT_PATH" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+  local dirty unmerged=0 leftovers=0
+  dirty=$(real_changes "$WT_PATH" | wc -l | tr -d ' ')
+  leftovers=$(( $(git -C "$WT_PATH" status --porcelain 2>/dev/null | wc -l | tr -d ' ') - dirty ))
   if [ "$dirty" -ne 0 ] && [ "$FORCE" -eq 0 ]; then
     say "  phase $NUM: SKIPPED — $dirty uncommitted change(s) in $WT_PATH"
     say "             commit them, or re-run with --force"
@@ -200,7 +224,10 @@ remove_phase() {
     say "  phase $NUM: note — $BRANCH has $unmerged commit(s) not in $BASE (branch is kept)"
   fi
 
-  if [ "$FORCE" -eq 1 ]; then
+  if [ "$leftovers" -gt 0 ] && [ "$FORCE" -eq 0 ]; then
+    say "  phase $NUM: discarding GSD's own session files ($leftovers) — no work in them"
+  fi
+  if [ "$FORCE" -eq 1 ] || [ "$leftovers" -gt 0 ]; then
     run git -C "$REPO_ROOT" worktree remove --force "$WT_PATH"
   else
     run git -C "$REPO_ROOT" worktree remove "$WT_PATH"

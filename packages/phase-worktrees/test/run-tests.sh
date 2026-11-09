@@ -85,6 +85,28 @@ echo scratch > "$WT/uncommitted.txt"
 git -C "$PROJ" branch --list 'unit/*' | grep -q ABC-123 \
   && ok "removing keeps the branch" || no "removing keeps the branch" "branch was deleted — committed work would be lost"
 
+echo "GSD's own leftovers do not block --remove"
+mkconfig(){ printf '{"workflow":{"use_worktrees":true}}' >"$PROJ/.planning/config.json"; git -C "$PROJ" add .planning/config.json; git -C "$PROJ" commit -qm config; }
+[ -f "$PROJ/.planning/config.json" ] || mkconfig
+git -C "$PROJ" branch -D gsd/phase-2-plain-phase >/dev/null 2>&1   # made before config.json existed
+leftovers(){ WT2="$PROJ/.worktrees/p2-plain-phase"
+  printf '{"workflow":{"use_worktrees":true,"_auto_chain_active":false}}\n' >"$WT2/.planning/config.json"
+  echo '{}' >"$WT2/.planning/HANDOFF.json"; }
+( cd "$PROJ" && "$SCRIPT" 2 ) >"$TMP/o" 2>&1; leftovers
+( cd "$PROJ" && "$SCRIPT" --remove 2 ) >"$TMP/o" 2>&1
+[ ! -d "$WT2" ] && ok "a worktree holding only HANDOFF.json and the auto-chain flag is removed" \
+  || no "a worktree holding only HANDOFF.json and the auto-chain flag is removed" "$(cat "$TMP/o")"
+( cd "$PROJ" && "$SCRIPT" 2 ) >"$TMP/o" 2>&1; leftovers; echo work >"$WT2/real.txt"
+( cd "$PROJ" && "$SCRIPT" --remove 2 ) >"$TMP/o" 2>&1
+[ -f "$WT2/real.txt" ] && grep -q '1 uncommitted change' "$TMP/o" \
+  && ok "leftovers plus real work still refuses, counting only the real change" \
+  || no "leftovers plus real work still refuses, counting only the real change" "$(cat "$TMP/o")"
+rm -f "$WT2/real.txt"
+printf '{"workflow":{"use_worktrees":false}}\n' >"$WT2/.planning/config.json"
+( cd "$PROJ" && "$SCRIPT" --remove 2 ) >"$TMP/o" 2>&1
+[ -d "$WT2" ] && ok "a real config.json change still refuses" || no "a real config.json change still refuses" "removed anyway"
+( cd "$PROJ" && "$SCRIPT" --remove --force 2 ) >"$TMP/o" 2>&1
+
 echo "a root outside the repo"
 ( cd "$PROJ" && "$SCRIPT" --root "$TMP/outside" 2 ) >"$TMP/o" 2>&1
 [ -d "$TMP/outside/p2-plain-phase" ] && ok "--root outside the repo still works" || no "--root outside the repo still works" "$(tail -3 "$TMP/o")"
