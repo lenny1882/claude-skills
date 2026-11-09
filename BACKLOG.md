@@ -40,7 +40,10 @@ references ships in `claude-hooks`' `claude-guard-hooks` as
 `check-bare-references.sh`; `/again` repairs a reply that has already gone
 out.
 
-## 3. `mate`, `bruv`, `dude` — redo the last answer that missed the point — **OPEN, raised 26 Oct 2026, widened 9 Nov 2026**
+## 3. `mate`, `bruv`, `dude` — redo the last answer that missed the point — **DONE 9 Nov 2026, raised 26 Oct 2026, widened 9 Nov 2026**
+
+**Built 9 Nov 2026** as `packages/mate`, version 0.1.0, not yet released.
+The bare-word hook ships in the same package as `hooks/mate-bare-word.sh`.
 
 **What.** One skill, reached three ways: `/mate`, `/bruv`, `/dude`, or a
 message that is only one of those words. A bare word needs a
