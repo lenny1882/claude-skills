@@ -1,6 +1,7 @@
 # Backlog — flutter-hot-reload-mac
 
 Opened 25 Aug 2026, when the package was moved here from `~/.claude/skills`.
+Each item's status was checked against 1.0.0 on 9 Nov 2026.
 
 ## Packaging
 
@@ -9,15 +10,38 @@ Opened 25 Aug 2026, when the package was moved here from `~/.claude/skills`.
    `claude-package-kit/skill/bin/new-package.sh --name flutter-hot-reload-mac
    --kind skill --no-release` scaffolds the lot; the payload then moves into
    the generated `skill/`.
+   Status: **DONE by 1.0.0 (26 Oct 2026).** `install.sh` (with `--link`),
+   `uninstall.sh`, `manifest.sh` and `update.sh` are in the package; 1.0.0 is
+   installed from its release tarball at
+   `/mnt/sda/User/Programs/claude-tools/flutter-hot-reload-mac`.
+
 2. **No tests.** `bash -n` and one manual run is all that stands behind it. The
    testable parts without a Mac: conf discovery in `lib.sh`, `_pick_host`'s
    cache, the `find -newer` detection in `watch.sh`, and `frun.py`'s command
    assembly with a stubbed `subprocess`.
+   Status: **MOSTLY DONE by 1.0.0.** `test/run-tests.sh` (52 checks on 9 Nov
+   2026) covers conf discovery, `_pick_host`'s single-host, cached and
+   first-answer cases, `frun.py`'s command assembly with a fake flutter, and
+   `reload.sh`, against an ssh stub. Still untested: `watch.sh`'s `find -newer`
+   detection, which is parse-checked only.
+
 3. **No git.** Same gap as `maestro-remote-mac`.
+   Status: **DONE.** The package lives in `claude-skills`, at
+   `packages/flutter-hot-reload-mac`.
+
 4. **Two copies exist** until `~/.claude/skills/flutter-hot-reload-mac` is
    removed by hand. Nothing keeps them in step.
+   Status: **DONE by 1.0.0.** The installer replaced the hand copy at
+   `~/.claude/skills/flutter-hot-reload-mac` (a test covers "installing over a
+   hand copy replaces it"), and `update.sh` keeps the installed copy in step
+   with releases.
+
 5. **No execute bits** on `skill/bin/*.sh` — they cannot be set from Claude's
    Bash, so callers use `bash <script>`. An installer would fix this properly.
+   Status: **OPEN.** Still true in 1.0.0: `skill/bin/*.sh` are mode 100644 in
+   git and 664 when installed, and `install.sh` only sets execute bits on
+   `FILES`, which this package leaves empty. `SKILL.md` calls each script with
+   `bash`.
 
 ## Behaviour
 
@@ -25,27 +49,47 @@ Opened 25 Aug 2026, when the package was moved here from `~/.claude/skills`.
    each save so the harness wakes Claude to post the screenshot; a save landing
    between the exit and the relaunch is not seen. A queue file the next run
    drains would close it.
+   Status: **OPEN.** Unchanged in 1.0.0; `watch.sh`'s header documents the gap.
+
 7. **Only `lib/**/*.dart` is watched.** Assets, translation JSON, `pubspec.yaml`
    and iOS native code are neither synced nor reloaded — the last two need a
    full rebuild, not a reload, and nothing says so when they change.
+   Status: **OPEN.** `watch.sh` still finds only `*.dart` under `WATCH_DIR`.
+
 8. **One simulator.** `DEV` picks a single device; the iPad booted alongside it
    is ignored. Reloading both would mean two `flutter run`s, so two fifos and
    two logs.
+   Status: **OPEN.**
+
 9. **`start.sh` waits up to ten minutes** in ten-second SSH polls. A cold build
    is minutes, so this is right, but each poll is a fresh connection.
+   Status: **OPEN.**
+
 10. **Nothing notices when `flutter run` dies.** The log gets
     `[frun] flutter run exited`; the watcher keeps syncing into a dead app and
     the screenshots simply stop changing.
+    Status: **OPEN.** `start.sh` checks the log for `exited` only while waiting
+    for the launch; `watch.sh` never checks.
 
 ## Wanted
 
 11. **A `.maestro-mac.conf` block** for `FLUTTER_BIN`, `FLAVOR`, `TARGET` and
     `WATCH_DIR`, written by an `init.sh` like the maestro skill's, so the
     defaults are not silently assumed.
+    Status: **PARTLY DONE.** `FLUTTER_BIN`, `FLAVOR`, `TARGET` and `WATCH_DIR`
+    are read from the per-project conf, now `.maestro-drive.conf`
+    (`bin/lib.sh:38`), and their defaults are listed in `SKILL.md`. No `init.sh`
+    writes them.
+
 12. **Cropping to a region** for UI work on one widget — the whole 1206×2622
     frame is mostly chrome when the change is a banner.
+    Status: **OPEN.**
+
 13. **Reading `flutter run`'s exceptions back** into the conversation rather
     than just the reload line, so a save that throws is visible immediately.
+    Status: **PARTLY DONE.** After each reload `watch.sh` prints the last two
+    log lines matching `Reloaded`, `reload failed/rejected`, `Error` or
+    `Exception`; the exception text itself is not read back.
 
 15. **~~`--flavor` splice position breaks device selection~~ — fixed.**
     `cmd[3:3]` in `frun.py:55` inserted `--flavor dev` between `-d` and the
@@ -81,6 +125,7 @@ Opened 25 Aug 2026, when the package was moved here from `~/.claude/skills`.
 
     Raised from `maestro-remote-mac` BACKLOG item 82 (17 Sep 2026), where the
     cost landed. The fix belongs here.
+    Status: **OPEN.**
 
 17. **~~An empty `FLAVOR` cannot turn the flavour off~~ — fixed in 1.0.0.**
     `SKILL.md` says `FLAVOR` is "empty for an unflavoured build", but the
@@ -108,6 +153,9 @@ Opened 25 Aug 2026, when the package was moved here from `~/.claude/skills`.
     Items 17 and 18 were raised 21 Oct 2026 in the pre-release copy at
     `~/scratch/flutter-hot-reload-mac/BACKLOG.md` and ported
     here 26 Oct 2026. Line numbers checked against 1.0.0.
+    Status: **OPEN.** Still true in 1.0.0: `start.sh:39` and `stop.sh:13` run
+    the same `pkill`, and `bin/lib.sh:69-73` still fixes the `/tmp/frun.*`
+    paths.
 
 ## Scope
 
@@ -123,3 +171,4 @@ Opened 25 Aug 2026, when the package was moved here from `~/.claude/skills`.
     whether the conf lookup should be the one place that's actually shared, and
     whether the SSH/host-picking layer should be dropped in favour of calling
     into `maestro-remote-mac` rather than maintaining a second, drifting copy.
+    Status: **OPEN.**
