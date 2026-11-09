@@ -14,7 +14,8 @@ that are each versioned, released and installed on their own.
 
 ## What you actually see
 
-`/one-by-one` takes the most recent list; `/one-by-one the decisions` or `/one-by-one F9-F12` names one. The first
+`/one-by-one` (or `/individually`, or `/separately`) takes the most recent
+list; `/one-by-one the decisions` or `/one-by-one F9-F12` names one. The first
 reply says which list it is and how many items it has, then gives item 1 only,
 headed "1 of 5 — <what it is>": what it is, what happens today (checked, not
 remembered), and each option with what it changes, the recommended one marked.
@@ -66,10 +67,12 @@ tarball as well as a clone — no git needed.
 ## How it works
 
 A typed-only skill (`disable-model-invocation`), so Claude never loads it
-uninvited. It is instructions only: no hook, no script, no state. Where it
-has got to in the list lives in the conversation, so a `/compact` or
-`/clear` midway loses the place; type `/one-by-one` again to pick up from the
-items not yet answered.
+uninvited. `/individually` and `/separately` are two more skills that tell
+Claude to follow `/one-by-one`'s; a slash command only resolves when a skill
+directory of that name exists. It is instructions only: no hook, no script, no
+state. Where it has got to in the list lives in the conversation, so a
+`/compact` or `/clear` midway loses the place; type `/one-by-one` again to pick
+up from the items not yet answered.
 
 ## Tests
 

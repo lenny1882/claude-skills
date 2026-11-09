@@ -135,6 +135,7 @@ there is no short way to ask for a comparison of things already on screen.
 **Built 9 Nov 2026** as `packages/one-by-one`, version 0.1.0, not yet
 released. Kept after `mate` took in the splitting, for lists that are not a
 fault. Decided: one item per reply, waiting for the answer before the next.
+`/individually` and `/separately` are aliases.
 
 **What.** A skill that takes a list of questions or points already given and
 deals with each one on its own, with more detail than the list had: what it is,

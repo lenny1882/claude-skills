@@ -7,8 +7,13 @@ PKG="one-by-one"
 OWNS="one-by-one"
 
 # A skill installs as a whole directory. install.sh copies or symlinks it.
+# aliases/individually and aliases/separately are thin skills pointing at
+# one-by-one, because /<name> only resolves when a skill directory of that
+# name exists and its frontmatter name matches.
 DIRS=(
   "skill:$CLAUDE_DIR/skills/one-by-one"
+  "aliases/individually:$CLAUDE_DIR/skills/individually"
+  "aliases/separately:$CLAUDE_DIR/skills/separately"
 )
 FILES=()
 # Other directories uninstall.sh removes. Not for state: uninstall.sh already
@@ -21,18 +26,21 @@ STATE_DIRS=()
 # settings_merge() { :; }
 
 REGISTRATIONS=(
-  "skills/one-by-one (no settings entry needed)"
+  "skills/one-by-one, skills/individually, skills/separately (no settings entry needed)"
 )
 
-# Confirm the installed skill is well formed and still typed-only. Its name
-# must match the directory, or /one-by-one stops resolving, and without
+# Each skill is well formed and still typed-only. A name must match its
+# directory, or the slash command stops resolving, and without
 # disable-model-invocation Claude would load it uninvited mid-answer.
 verify_probe() {
-  local f="$CLAUDE_DIR/skills/$PKG/SKILL.md"
-  [ -f "$f" ] || return 1
-  head -1 "$f" | grep -q '^---$' || return 1
-  grep -qx "name: $PKG" "$f" && grep -q '^description:' "$f" || return 1
-  grep -qx 'disable-model-invocation: true' "$f"
+  local n f
+  for n in one-by-one individually separately; do
+    f="$CLAUDE_DIR/skills/$n/SKILL.md"
+    [ -f "$f" ] || return 1
+    head -1 "$f" | grep -q '^---$' || return 1
+    grep -qx "name: $n" "$f" && grep -q '^description:' "$f" || return 1
+    grep -qx 'disable-model-invocation: true' "$f" || return 1
+  done
 }
 
 # Optional. Run by the release workflow at the tag, in this directory, with $1

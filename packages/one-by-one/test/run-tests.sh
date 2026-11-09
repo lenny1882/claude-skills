@@ -52,6 +52,11 @@ has "marks the recommended option" "Mark the recommended one"
 has "handles skip, next and back" '"skip", "next" or "back"'
 has "closing list of every answer" "one closing list"
 has "never splits a run of commands" "A run of commands meant to be pasted together"
+for n in individually separately; do
+  f="$REPO/aliases/$n/SKILL.md"
+  grep -qx "name: $n" "$f" && grep -qx 'disable-model-invocation: true' "$f" \
+    && grep -q 'skills/one-by-one/SKILL.md' "$f" && ok "/$n points at one-by-one" || no "/$n points at one-by-one" "$f"
+done
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" = 0 ]

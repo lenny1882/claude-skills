@@ -23,7 +23,7 @@ shipped without touching the rest.
 | [`repo-remote-control-server`](packages/repo-remote-control-server/) | `rrcd` runs a Remote Control server per repo as a systemd user unit that survives reboots and claude updates; needs `repo-remote-control-session` |
 | [`mate`](packages/mate/) | `mate`, `bruv` or `dude` redoes the last answer that missed the point: it names the fault (tangent, overkill, technical, several in one) and fixes it |
 | [`compare`](packages/compare/) | `/compare` or `/side-by-side` lays things already in the conversation out as level columns, both sides verbatim, and names each difference |
-| [`one-by-one`](packages/one-by-one/) | `/one-by-one` goes through a list already given one item per reply, each in full, waiting for your answer before the next |
+| [`one-by-one`](packages/one-by-one/) | `/one-by-one`, `/individually` or `/separately` goes through a list already given one item per reply, each in full, waiting for your answer before the next |
 <!-- new-package.sh --monorepo adds a row above this line -->
 
 ## Install a package
