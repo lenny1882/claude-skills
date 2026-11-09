@@ -395,6 +395,11 @@ grep -qx 'ExecStartPre=-%h/.local/bin/rrcd tidy "/%I"' "$U" && grep -qx 'Restart
 grep -qx 'ExecStart=%h/.local/bin/rrcd serve "/%I"' "$U" && ! grep -v '^#' "$U" | grep -qE '%i|^EnvironmentFile=|^Standard(Output|Error)=' \
   && ok "the server unit runs rrcd serve with the repo's path, and names no file by %i" \
   || no "the server unit runs rrcd serve with the repo's path, and names no file by %i" "$(grep -vE '^#' "$U")"
+# The user manager's PATH has no ~/.local/bin, and the sandbox exclusions
+# match only the bare name rrcd (infra-box, 3 Nov).
+grep -qx 'Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin' "$U" \
+  && ok "the server unit puts ~/.local/bin first on its sessions' PATH" \
+  || no "the server unit puts ~/.local/bin first on its sessions' PATH" "$(grep -E '^Environment' "$U")"
 
 # rrcd serve, with a stand-in claude that records where and how it ran
 cat >"$STUB/bin/claude" <<'EOF'

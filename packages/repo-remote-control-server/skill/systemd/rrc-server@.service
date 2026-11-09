@@ -20,12 +20,18 @@
 # - a server killed by a reboot leaves its sessions' worktrees locked to its
 #   dead PID; rrcd tidy releases those and removes the ones with no work
 #   before each start. The "-": a failed tidy never stops the server
+# - the systemd user manager's PATH has no ~/.local/bin, so every rrcd call a
+#   server's session made failed with "rrcd: command not found", and the
+#   sandbox exclusions match only the bare name rrcd, not a full path
+#   (infra-box container tests, 3 Nov, Ubuntu 24.04). environment.d did
+#   not reach the unit after daemon-reload; Environment= does
 
 [Unit]
 Description=Claude Remote Control server in /%I
 
 [Service]
 WorkingDirectory=/%I
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 ExecStartPre=-%h/.local/bin/rrcd tidy "/%I"
 ExecStart=%h/.local/bin/rrcd serve "/%I"
 Restart=always
