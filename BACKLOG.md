@@ -115,7 +115,10 @@ period:
   replies, and 13 list items. Each one held a list of decisions to answer in
   one reply.
 
-## 4. Compare what has been given, often side by side — **OPEN, raised 26 Oct 2026**
+## 4. Compare what has been given, often side by side — **DONE 9 Nov 2026, raised 26 Oct 2026**
+
+**Built 9 Nov 2026** as `packages/compare`, version 0.1.0, not yet released,
+with `/side-by-side` as an alias.
 
 **What.** A skill that takes things already given in the conversation — two
 drafts, options, files, versions, outputs — and compares them. Usually it sets

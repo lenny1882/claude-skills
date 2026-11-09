@@ -2,8 +2,9 @@
 
 Claude Code skills for this machine's workflows: parallel GSD phases in their
 own worktrees, Flutter hot reload on a remote Mac, one-off Remote Control
-sessions and a Remote Control server per repo, and three typed repairs for a bad
-answer — `/owl`, `/again` and `/mate`.
+sessions and a Remote Control server per repo, three typed repairs for a bad
+answer — `/owl`, `/again` and `/mate` — and `/compare`, which lays things
+already in the conversation side by side.
 
 Every package under `packages/` is versioned, released and installed on its
 own. A fault in one says nothing about another, so each can be fixed and
@@ -20,6 +21,7 @@ shipped without touching the rest.
 | [`repo-remote-control-session`](packages/repo-remote-control-session/) | `rrc session` opens one Claude Remote Control session in a repo, as a systemd user unit, and prints its URL for claude.ai or the Claude app |
 | [`repo-remote-control-server`](packages/repo-remote-control-server/) | `rrcd` runs a Remote Control server per repo as a systemd user unit that survives reboots and claude updates; needs `repo-remote-control-session` |
 | [`mate`](packages/mate/) | `mate`, `bruv` or `dude` redoes the last answer that missed the point: it names the fault (tangent, overkill, technical, several in one) and fixes it |
+| [`compare`](packages/compare/) | `/compare` or `/side-by-side` lays things already in the conversation out as level columns, both sides verbatim, and names each difference |
 <!-- new-package.sh --monorepo adds a row above this line -->
 
 ## Install a package
