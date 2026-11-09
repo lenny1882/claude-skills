@@ -143,7 +143,7 @@ results in `DESIGN.md`), any of which an update could change:
 
 - The output format: the `https://claude.ai/code?environment=env_…` line, the
   `Capacity: N/32` line, and the "Workspace not trusted" and "already served"
-  errors. If the format changes, `rrcd start` waits two minutes and fails with
+  errors. If the format changes, `rrcd start` waits five minutes and fails with
   "no URL", and `rrcd list` shows no URL or session count. Servers
   with no count are never restarted by the watcher.
 - A server started just after another one in the same folder stopped is

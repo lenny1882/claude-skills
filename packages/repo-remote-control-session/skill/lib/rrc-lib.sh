@@ -33,7 +33,10 @@ CLAUDE_DIR=${CLAUDE_DIR:-$HOME/.claude}
 CLAUDE_JSON=${RRC_CLAUDE_JSON:-$HOME/.claude.json}
 CLAUDE_JSON_LOCK=${RRC_CLAUDE_JSON_LOCK:-$CLAUDE_DIR/.rrc-claude-json.lock}
 UNIT_DIR=$HOME/.config/systemd/user
-WAIT=${RRC_WAIT:-120}
+# 300, not 120: a restarted server is refused as "already served" for about
+# 70 seconds and Restart= retries every 30, so its URL came after 100 seconds
+# or more, once after about 3.5 minutes (infra-box container tests, 3 Nov)
+WAIT=${RRC_WAIT:-300}
 POLL=${RRC_POLL:-1}
 MODES="acceptEdits auto bypassPermissions default dontAsk plan"
 

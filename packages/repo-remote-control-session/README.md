@@ -126,7 +126,7 @@ change:
   as "already served" for up to about 3 minutes after its last session stops
   (131 to 194 seconds in Docker, 2 Nov); `rrc session` stops the refused
   process and tries again every 15 seconds for up to 5 minutes. If the format changes,
-  `rrc session` waits two minutes and fails with "no URL".
+  `rrc session` waits five minutes and fails with "no URL".
 - `claude` resumes a folder's last session from
   `~/.claude/projects/<folder>/bridge-pointer.json`, a file of its own with
   no documentation. If it moves, a second session in a repo fails again.
