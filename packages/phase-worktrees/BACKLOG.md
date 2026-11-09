@@ -136,8 +136,8 @@ started inside `<repo>/.worktrees/p1-two-files`.
   released.** `real_changes` leaves an untracked `.planning/HANDOFF.json` and a
   `config.json` that differs only in `_auto_chain_active` or formatting out of
   the count; with only those present, `--remove` says it is discarding them and
-  removes the worktree. Found in the run: After the run the phase worktree
-  held a modified `.planning/config.json` (GSD added
-  `"_auto_chain_active": false` and a final newline) and an untracked
-  `.planning/HANDOFF.json`. `--remove` counts those as uncommitted work and
-  refuses without `--force`, and `--force` would also discard real work.
+  removes the worktree. Found in the run: afterwards the phase worktree held
+  a modified `.planning/config.json` (GSD added `"_auto_chain_active": false`
+  and a final newline) and an untracked `.planning/HANDOFF.json`. `--remove`
+  counted those as uncommitted work and refused without `--force`, and
+  `--force` would also have discarded real work.
