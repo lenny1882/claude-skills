@@ -1,7 +1,7 @@
 again 1.0.0
 flutter-hot-reload-mac 1.0.0
 owl 1.0.0
-phase-worktrees 1.0.0
+phase-worktrees 1.1.0
 repo-remote-control 1.1.0
 repo-remote-control-server 2.0.2
 repo-remote-control-session 1.0.2
