@@ -11,9 +11,9 @@ a client app project. Skill version at the time: 1.0.0.
 relative `--root` is taken from the repo root. `/.worktrees/` (the root,
 anchored) goes into `info/exclude` alongside `.claude/`, and only when the root
 is inside the repo. `--remove` also finds a phase's worktree by its branch, so
-worktrees made at the old default can still be removed. The `SKILL.md`
-"outside the repo so git never sees them" line was in `README.md`, and is
-replaced there; `SKILL.md` now gives the reason for the new location.
+worktrees made at the old default can still be removed. The "outside
+the repo so git never sees them" line, in both `SKILL.md` and `README.md`, is
+replaced with the reason for the new location.
 
 **Session: 21 Aug 2026**, creating a worktree for phase 2 of
 a client app project (`.planning/phases/02-user-permissions`).
@@ -72,6 +72,34 @@ them.
 - `.git/info/exclude` was writable.
 - With `.worktrees/` not excluded, `git status` listed it as untracked.
 
-Still untested: a real `/gsd:execute-phase` run in a session started inside a
-phase worktree, where Claude Code creates the subagent worktrees itself rather
-than through Bash.
+**Run 9 Nov 2026**: a real `/gsd:execute-phase 1` in a session started inside
+`<repo>/.worktrees/p1-two-files` of a throwaway GSD project (one phase, two
+plans in wave 1, `workflow.use_worktrees: true`):
+
+- **Passed.** Both plans ran in parallel as subagents in worktrees. Each made
+  its two commits on a `worktree-agent-<id>` branch, and the orchestrator
+  merged both into `gsd/phase-1-two-files`, which ended 6 commits ahead of
+  `main`. `main` did not move.
+- **Where the subagent worktrees went:** `<repo>/.claude/worktrees/agent-<id>`,
+  in the main checkout, not `<phase worktree>/.claude/worktrees/`. Claude Code
+  roots them at the main checkout. The old troubleshooting note named "agent
+  worktrees under the main checkout" as a symptom of a symlinked `.claude`;
+  that note is corrected in `SKILL.md` and `README.md`.
+- **Left behind when the session ended (exit 0):** GSD deleted both
+  `worktree-agent-<id>` branches and their directories, but `git worktree
+  list` still showed both as detached at `0000000` until `git worktree prune`.
+  The phase worktree had `.planning/config.json` modified (GSD added
+  `"_auto_chain_active": false` and a final newline) and an untracked
+  `.planning/HANDOFF.json` for `/gsd:resume-work`. The main checkout was
+  clean. None of this is phase-worktrees' doing, but `--remove` hits it:
+  without `--force` it refuses a worktree holding those two files.
+- **Not settled by it:** both the phase branch and `main` were at the same
+  commit, so the run cannot show whether the agents forked from the phase
+  branch or from `main`. A rerun with the phase branch one commit ahead of
+  `main` would show it.
+- **Also open:** the reason given for copying `.claude/` rather than
+  symlinking it is that a symlink puts `.claude/worktrees` outside the
+  session's writable area. This run created the agent worktrees outside the
+  phase session's working directory without trouble, because Claude Code
+  creates them itself, not through sandboxed Bash. The copy may no longer be
+  needed for that reason; untested.

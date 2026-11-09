@@ -70,8 +70,10 @@ permission approvals no longer carry between worktrees, which is the better
 trade.
 
 If anyone reports that worktree isolation "doesn't work in this sandbox", or
-sees agent worktrees appearing under the main checkout, check for a symlinked
-`.claude` first. There is a test covering this.
+the plans of a wave running one at a time, check for a symlinked `.claude`
+first. There is a test covering this. Agent worktrees under the main
+checkout's `.claude/worktrees/` are normal: Claude Code puts them there even
+when the session was started inside a phase worktree.
 
 ## Also worth knowing
 

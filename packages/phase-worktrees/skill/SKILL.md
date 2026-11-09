@@ -62,9 +62,14 @@ So the script creates a real `.claude` directory in each worktree and copies
 `settings.json` and `settings.local.json` into it. The cost is that permission
 approvals no longer carry between worktrees. That is the correct trade.
 
-If a user reports "worktree isolation doesn't work in this sandbox" or agent
-worktrees appearing under the main checkout, check for a symlinked `.claude`
-first.
+If a user reports "worktree isolation doesn't work in this sandbox", or the
+plans of a wave running one at a time, check for a symlinked `.claude` first.
+
+Agent worktrees under the main checkout's `.claude/worktrees/` are normal, not
+a symptom. Claude Code roots subagent worktrees at the main checkout even when
+the session was started in a phase worktree: in a run on 9 Nov 2026 both
+agents of a wave were created there, ran in parallel, and were merged into the
+phase branch, with the main checkout's branch untouched.
 
 ## What else the script sets up
 
@@ -72,8 +77,9 @@ first.
   `01-new-settings-page-abc-123` becomes
   `unit/ABC-123-new-settings-page-phase`. Phases with no ticket id in the
   directory name fall back to `gsd/phase-<n>-<slug>`.
-- Worktrees at `<repo-parent>/<repo-name>-worktrees/p<n>-<slug>`, outside the
-  repo so git never sees them.
+- Worktrees at `<repo>/.worktrees/p<n>-<slug>`, inside the repo so a sandboxed
+  session can create them, with `/.worktrees/` in `.git/info/exclude` so git
+  status in the main checkout does not list them.
 - Symlinks to gitignored build directories that exist in the main checkout —
   `vendor`, `node_modules`, `.venv`, `target`, `build` — so they are shared
   rather than duplicated.
