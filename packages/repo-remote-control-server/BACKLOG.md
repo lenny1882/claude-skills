@@ -5,7 +5,7 @@ Opened 9 Nov 2026. Items found while the package was being built are in
 
 ---
 
-## 1. Servers' sessions get the user's login-shell PATH — **IN PROGRESS, raised 9 Nov 2026**
+## 1. Servers' sessions get the user's login-shell PATH — **DONE 9 Nov 2026 in 2.0.3, raised 9 Nov 2026**
 
 **What happens in 2.0.2.** `rrc-server@.service` sets
 `Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin`, added so a
@@ -35,9 +35,13 @@ with `~/.local/bin` first. Cost: the user's whole `.bashrc` runs at every
 server start, including the 30-second retries while a folder is refused;
 loading nvm is about half a second.
 
-**Still to do, in order:**
+**Steps, all done:**
 
-1. Release as 2.0.3 (`/release repo-remote-control-server`).
+1. ~~Release~~ **Done 9 Nov 2026**: tag `repo-remote-control-server-v2.0.3`,
+   listed in `versions.txt`. Pushed with seven other packages' tags in one
+   push, which started no workflow runs: GitHub creates no push events when
+   more than three tags are pushed at once. The tags were deleted on GitHub
+   and pushed one at a time, and all eight runs passed.
 2. ~~Docker~~ **Done 9 Nov 2026**, on the uncommitted change (Ubuntu
    24.04, claude 2.1.305): `confirm.sh sandbox-rrc` passed
    (`results/20261109-145148`), `integration.sh --app` passed 27 of 27
@@ -47,8 +51,7 @@ loading nvm is about half a second.
    present, `/usr/sbin` present, `rrcd` found by name. That PATH named
    `~/.local/bin` three times; `rrcd serve` now keeps each directory once.
    Rerun in Docker with that, 5 of 5, no repeats.
-3. **Tell aws-workspace**, once 2.0.3 is released, through a session running
-   there. Its side:
+3. ~~Tell aws-workspace~~ **Done 9 Nov 2026** (below). Its side, for it to do:
    - Remove `setup.sh`'s `server-path` step (`body_server_path`,
      `scripts/setup.sh:926`) and delete `50-path.conf` on boxes that have it.
      Left in place it sets the starting PATH to its own short list, so
@@ -69,4 +72,5 @@ loading nvm is about half a second.
    "server PATH and SDKs backlog"), as an update to the item it recorded
    earlier that day about the 2.0.2 behaviour and the drop-in. It was told
    to record, not implement, and that a second message follows when 2.0.3
-   is released. **Still to do: that second message.**
+   is released. The second message, saying 2.0.3 is released and its side
+   can be acted on, was sent to the same session the same day.

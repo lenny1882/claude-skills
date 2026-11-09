@@ -805,7 +805,7 @@ the unit so sessions could run `rrcd` by name (infra-box, 3 Nov). systemd
 can't expand `$PATH` in `Environment=`, so that replaced the user manager's
 PATH: no `/usr/sbin`, `/sbin` or `/snap/bin`, and nothing from `~/.profile`
 or `~/.bashrc` (nvm's node, SDKs, asdf shims) for the servers' sessions or
-anything they start. Changed, not yet released: the line is gone, and
+anything they start. Changed in 2.0.3: the line is gone, and
 `rrcd serve` runs `bash -l -i` once per start and takes its PATH, with
 `~/.local/bin` first. Considered and not taken: a fixed list of directories
 in `state/config` (kept up by hand), the caller's PATH stored at
@@ -823,10 +823,7 @@ now drops repeats, keeping each directory at its first place.
 
 ## Still open
 
-1. **The login-shell PATH:** passed in Docker 9 Nov; the release and the
-   second message to aws-workspace are still to do (BACKLOG.md item 1).
-
-Cloning over `git@ssh.bitbucket.org` from the box, and the sandbox blocking
+Nothing in this package. Cloning over `git@ssh.bitbucket.org` from the box, and the sandbox blocking
 `rrcd` there with the installers' `excludedCommands` fixing it, are tests on
 the AWS WorkSpace: aws-workspace's REMAINING-TESTS.md item 15 has them.
 
