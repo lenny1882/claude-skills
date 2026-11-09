@@ -823,13 +823,12 @@ now drops repeats, keeping each directory at its first place.
 
 ## Still open
 
-1. **Cloning from the box:** confirm `git@ssh.bitbucket.org` works with the
-   box's key and the added host keys. Waits for the box.
-2. **On the box, once it exists:** confirm its sandbox blocks `rrcd` the way
-   Docker's did, and that the installers' `excludedCommands` entries fix it
-   there too. Both passed in Docker on 2 Nov.
-3. **The login-shell PATH:** passed in Docker 9 Nov; the release and the
+1. **The login-shell PATH:** passed in Docker 9 Nov; the release and the
    second message to aws-workspace are still to do (BACKLOG.md item 1).
+
+Cloning over `git@ssh.bitbucket.org` from the box, and the sandbox blocking
+`rrcd` there with the installers' `excludedCommands` fixing it, are tests on
+the AWS WorkSpace: aws-workspace's REMAINING-TESTS.md item 15 has them.
 
 repo-remote-control 1.1.0 is installed only on the user's own machine, which
 gets it uninstalled and the new packages installed fresh (decided 2 Nov).
@@ -853,7 +852,8 @@ handoff reconciliation" was offline):
 7. `"excludedCommands": ["rrc"]` in the sandbox settings, merged alongside
    item 1 (see "Sandbox"). No longer needed from setup.sh: the installers add
    their own, and `["rrc"]` would not have matched a call with arguments.
-8. Confirm cloning over `ssh.bitbucket.org` from the box (open item 1).
+8. Confirm cloning over `ssh.bitbucket.org` from the box (now aws-workspace's
+   REMAINING-TESTS.md item 15).
 
 ## Build status (22 Oct)
 
