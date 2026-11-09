@@ -76,8 +76,12 @@ them.
 `<repo>/.worktrees/p1-two-files` of a throwaway GSD project (one phase, two
 plans in wave 1, `workflow.use_worktrees: true`):
 
-- **Passed.** Both plans ran in parallel as subagents in worktrees. Each made
-  its two commits on a `worktree-agent-<id>` branch, and the orchestrator
+- **Passed, but not in parallel.** Both plans ran as background subagents
+  with `isolation="worktree"`, dispatched in separate messages 26 s apart
+  (13:15:28 and 13:15:54). Plan 01 had committed by 13:15:40, before plan 02's
+  agent started, so the run cannot show whether agents overlap; an earlier
+  note here said they ran in parallel, which the timestamps do not support.
+  Each agent made its two commits on a `worktree-agent-<id>` branch, and the orchestrator
   merged both into `gsd/phase-1-two-files`, which ended 6 commits ahead of
   `main`. `main` did not move.
 - **Where the subagent worktrees went:** `<repo>/.claude/worktrees/agent-<id>`,
@@ -93,13 +97,43 @@ plans in wave 1, `workflow.use_worktrees: true`):
   `.planning/HANDOFF.json` for `/gsd:resume-work`. The main checkout was
   clean. None of this is phase-worktrees' doing, but `--remove` hits it:
   without `--force` it refuses a worktree holding those two files.
-- **Not settled by it:** both the phase branch and `main` were at the same
-  commit, so the run cannot show whether the agents forked from the phase
-  branch or from `main`. A rerun with the phase branch one commit ahead of
-  `main` would show it.
-- **Also open:** the reason given for copying `.claude/` rather than
+
+Three findings from the run that are not this item are item 2.
+
+## 2. Findings from the 9 Nov execute-phase run — **OPEN, raised 9 Nov 2026**
+
+From the run recorded under item 1: a real `/gsd:execute-phase` in a session
+started inside `<repo>/.worktrees/p1-two-files`.
+
+- **Which commit the agents fork from — settled 9 Nov 2026: the phase
+  branch.** Rerun with the phase branch one commit ahead of `main` (a
+  `marker.txt` commit only there) and a symlinked `.claude`: both agent
+  worktrees contained the marker commit, the marker survived the merges, and
+  `main` did not move.
+- **Whether `.claude/` still needs copying — tested 9 Nov 2026: it does not,
+  for the reason given.** The reason given for copying `.claude/` rather than
   symlinking it is that a symlink puts `.claude/worktrees` outside the
-  session's writable area. This run created the agent worktrees outside the
-  phase session's working directory without trouble, because Claude Code
-  creates them itself, not through sandboxed Bash. The copy may no longer be
-  needed for that reason; untested.
+  session's writable area, so agent worktrees fail to create and the wave
+  runs one plan at a time. Two probes ran at once, identical except for
+  `.claude` in the phase worktree, each with two wave-1 plans that ran
+  `sleep 60`, and the phase branch one commit ahead of `main`:
+
+  | | copied `.claude/` (`gsd-probe3`) | symlink to main's (`gsd-probe4`) |
+  |---|---|---|
+  | plan 01 ran | 13:31:36–13:32:36 | 13:31:27–13:32:27 |
+  | plan 02 ran | 13:31:53–13:32:53 | 13:31:56–13:32:56 |
+  | overlap | 43 s | 31 s |
+  | agent worktrees in | main checkout's `.claude/worktrees/` | the same |
+  | forked from | the phase branch | the phase branch |
+  | `main` moved | no | no |
+
+  Claude Code creates the agent worktrees itself, outside the Bash sandbox,
+  and roots them at the main checkout either way, so the symlink changes
+  nothing there. Still to decide: whether to switch to a symlink. That is a
+  design choice with its own costs — a `.claude/` tracked in git, and
+  sessions sharing one `settings.local.json` — not a fault.
+- **`--remove` refuses GSD's own leftovers.** After the run the phase worktree
+  held a modified `.planning/config.json` (GSD added
+  `"_auto_chain_active": false` and a final newline) and an untracked
+  `.planning/HANDOFF.json`. `--remove` counts those as uncommitted work and
+  refuses without `--force`, and `--force` would also discard real work.

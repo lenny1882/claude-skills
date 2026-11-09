@@ -68,8 +68,8 @@ plans of a wave running one at a time, check for a symlinked `.claude` first.
 Agent worktrees under the main checkout's `.claude/worktrees/` are normal, not
 a symptom. Claude Code roots subagent worktrees at the main checkout even when
 the session was started in a phase worktree: in a run on 9 Nov 2026 both
-agents of a wave were created there, ran in parallel, and were merged into the
-phase branch, with the main checkout's branch untouched.
+agents of a wave were created there, forked from the phase branch, and were
+merged back into it, with the main checkout's branch untouched.
 
 ## What else the script sets up
 
