@@ -9,7 +9,7 @@ move to that package's own `BACKLOG.md`; once a hook is taken up in
 
 ## 1. `/owl` — redo the last answer end to end — **DONE 26 Oct 2026, raised 26 Oct 2026**
 
-**Built 26 Oct 2026** as `packages/owl`, version 0.1.0, not yet released.
+**Built 26 Oct 2026** as `packages/owl`; released as 1.0.0 the same day.
 
 **What.** A skill that redoes the last answer after Claude skipped most of its
 steps. It lists every step in order. For each step it gives where it runs
@@ -27,7 +27,7 @@ added to that project's `MEMORY.md` index, so it was never loaded.
 
 ## 2. `/again` — re-present the last question set or list in full — **DONE 26 Oct 2026, raised 26 Oct 2026**
 
-**Built 26 Oct 2026** as `packages/again`, version 0.1.0, not yet released.
+**Built 26 Oct 2026** as `packages/again`; released as 1.0.0 the same day.
 
 **What.** A skill that gives the last set of questions or list again, complete:
 every item with its context, the current behaviour and the options. No bare
@@ -124,8 +124,8 @@ with `/side-by-side` as an alias.
 drafts, options, files, versions, outputs — and compares them. Usually it sets
 them side by side as defined in `~/.claude/CLAUDE.md` "Side-by-side means
 columns": parallel hard-wrapped columns in a code fence, corresponding lines
-level, both sides verbatim. It then names each difference. The command name is
-still to choose (`/compare`, `/side-by-side`).
+level, both sides verbatim. It then names each difference. Built as
+`/compare`, with `/side-by-side` as an alias.
 
 **Why.** The writing rule says what side-by-side looks like when asked for, but
 there is no short way to ask for a comparison of things already on screen.
@@ -139,10 +139,8 @@ fault. Decided: one item per reply, waiting for the answer before the next.
 
 **What.** A skill that takes a list of questions or points already given and
 deals with each one on its own, with more detail than the list had: what it is,
-what happens today, what each option changes. The command name is still to
-choose (`/one-by-one`, `/individually`, `/separately`). Also still to decide:
-all items in one reply, or one item per reply, waiting for the user's answer
-before the next.
+what happens today, what each option changes. Built as `/one-by-one`, with
+`/individually` and `/separately` as aliases, one item per reply.
 
 **Why.** A list of several questions or points answered together gets each one
 too briefly; taking them separately gives each one the detail it needs.
