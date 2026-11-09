@@ -54,26 +54,21 @@ id fall back to `gsd/phase-<n>-<slug>`.
 Removing refuses while a worktree holds uncommitted changes, and never deletes a
 branch. Committed work survives removal either way.
 
-## The one thing not to change
+## `.claude` in each worktree
 
-Each worktree gets a **real `.claude/` directory** holding copies of
-`settings.json` and `settings.local.json` — never a symlink back to the main
-checkout.
+Each worktree's `.claude` is a symlink to the main checkout's, so permission
+approvals carry between the phases and the main checkout. If the repo tracks
+anything under `.claude/` in git, the worktree gets a real `.claude/`
+directory with copies of `settings.json` and `settings.local.json` instead,
+because a symlink over tracked files makes git see them as deleted.
 
-`/gsd:execute-phase` runs the plans in a wave as parallel subagents with
-`isolation="worktree"`, and Claude Code puts those subagent worktrees under
-`<project>/.claude/worktrees/`. If `.claude` is a symlink, that path resolves
-outside the session's writable area: the subagent worktrees fail to create, the
-session quietly falls back to one plan at a time, and it can fork from the main
-checkout's HEAD instead of the phase branch. The cost of copying is that
-permission approvals no longer carry between worktrees, which is the better
-trade.
-
-If anyone reports that worktree isolation "doesn't work in this sandbox", or
-the plans of a wave running one at a time, check for a symlinked `.claude`
-first. There is a test covering this. Agent worktrees under the main
-checkout's `.claude/worktrees/` are normal: Claude Code puts them there even
-when the session was started inside a phase worktree.
+It used to copy every time, on the belief that a symlink stopped GSD's agent
+worktrees being created, so a wave ran one plan at a time. Tested on 9 Nov
+2026 with two identical probes, one copied and one symlinked: both ran two
+60-second plans in parallel, and both put the agent worktrees in the main
+checkout's `.claude/worktrees/`, which is where Claude Code always puts them.
+Removing a worktree unlinks the symlink and leaves the main checkout's
+`.claude` alone.
 
 ## Also worth knowing
 
@@ -113,7 +108,9 @@ Redirects `HOME` and `CLAUDE_DIR` into a temp directory, so your real config is
 never touched. `./test/run-tests.sh` at the repo root runs every package's.
 
 Builds a throwaway GSD-shaped repo in a temp directory and runs a real create
-and remove cycle against it, including the symlink trap above.
+and remove cycle against it: the symlinked `.claude` and the copy for a repo
+that tracks `.claude/`, and that removal leaves the main checkout's `.claude`
+alone.
 
 ## Releasing
 

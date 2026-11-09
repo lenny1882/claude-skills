@@ -46,30 +46,29 @@ Refuses any worktree holding uncommitted changes. `--force` overrides that and
 discards them, so confirm with the user before adding it. Branches are always
 kept — removing a worktree never deletes work that was committed.
 
-## Why the script copies `.claude/` instead of symlinking it
+## `.claude` in each worktree: a symlink, or a copy when `.claude/` is tracked
 
-This is the part that is easy to get wrong and expensive to debug.
+The script links each worktree's `.claude` to the main checkout's, so a
+permission approved in one phase session holds in every phase and in the main
+checkout. If the repo tracks anything under `.claude/` in git, it makes a real
+`.claude/` directory instead and copies `settings.json` and
+`settings.local.json` into it: the worktree's checkout already holds the
+tracked files, and a symlink in their place shows every one as deleted.
 
-GSD's `/gsd:execute-phase` runs the plans in a wave as parallel subagents with
-`isolation="worktree"`, and Claude Code creates those subagent worktrees under
-`<project>/.claude/worktrees/`. If the phase worktree's `.claude` is a symlink
-back to the main checkout, that path resolves outside the session's writable
-area and the subagent worktrees fail to create — the session falls back to
-running one plan at a time, and can fork from the main checkout's HEAD rather
-than the phase branch.
+Until 9 Nov 2026 the script always copied, on the belief that a symlink put
+`.claude/worktrees` outside the session's writable area, so GSD's agent
+worktrees failed and a wave ran one plan at a time. Two identical probes, one
+copied and one symlinked, both ran two 60-second plans in parallel (see
+`BACKLOG.md` item 2). Claude Code creates agent worktrees itself, outside the
+Bash sandbox, and puts them in the main checkout's `.claude/worktrees/` either
+way — that location is normal, not a symptom.
 
-So the script creates a real `.claude` directory in each worktree and copies
-`settings.json` and `settings.local.json` into it. The cost is that permission
-approvals no longer carry between worktrees. That is the correct trade.
+`--remove` unlinks the symlink and leaves the main checkout's `.claude` alone;
+`git worktree remove` does not follow it, with or without `--force`.
 
-If a user reports "worktree isolation doesn't work in this sandbox", or the
-plans of a wave running one at a time, check for a symlinked `.claude` first.
-
-Agent worktrees under the main checkout's `.claude/worktrees/` are normal, not
-a symptom. Claude Code roots subagent worktrees at the main checkout even when
-the session was started in a phase worktree: in a run on 9 Nov 2026 both
-agents of a wave were created there, forked from the phase branch, and were
-merged back into it, with the main checkout's branch untouched.
+If a wave does run one plan at a time, check `workflow.use_worktrees` and
+`parallelization.enabled` in `.planning/config.json`, and whether the plans
+share files: GSD runs plans that touch the same files one after another.
 
 ## What else the script sets up
 
@@ -77,6 +76,8 @@ merged back into it, with the main checkout's branch untouched.
   `01-new-settings-page-abc-123` becomes
   `unit/ABC-123-new-settings-page-phase`. Phases with no ticket id in the
   directory name fall back to `gsd/phase-<n>-<slug>`.
+- `.claude` linked to the main checkout's, or copied when `.claude/` is
+  tracked — see above.
 - Worktrees at `<repo>/.worktrees/p<n>-<slug>`, inside the repo so a sandboxed
   session can create them, with `/.worktrees/` in `.git/info/exclude` so git
   status in the main checkout does not list them.

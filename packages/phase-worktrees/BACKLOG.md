@@ -100,7 +100,7 @@ plans in wave 1, `workflow.use_worktrees: true`):
 
 Three findings from the run that are not this item are item 2.
 
-## 2. Findings from the 9 Nov execute-phase run — **OPEN, raised 9 Nov 2026**
+## 2. Findings from the 9 Nov execute-phase run — **DONE 9 Nov 2026, raised 9 Nov 2026**
 
 From the run recorded under item 1: a real `/gsd:execute-phase` in a session
 started inside `<repo>/.worktrees/p1-two-files`.
@@ -129,9 +129,14 @@ started inside `<repo>/.worktrees/p1-two-files`.
 
   Claude Code creates the agent worktrees itself, outside the Bash sandbox,
   and roots them at the main checkout either way, so the symlink changes
-  nothing there. Still to decide: whether to switch to a symlink. That is a
-  design choice with its own costs — a `.claude/` tracked in git, and
-  sessions sharing one `settings.local.json` — not a fault.
+  nothing there. **Changed 9 Nov 2026, not yet released:** the script now
+  symlinks `.claude` to the main checkout's, so permission approvals carry
+  between worktrees, and copies only when the repo tracks anything under
+  `.claude/` (a symlink there makes git see the tracked files as deleted).
+  `git worktree remove` unlinks the symlink and leaves the main checkout's
+  `.claude` alone, with and without `--force` (checked on git 2.25.1). Known
+  cost: several phase sessions write one `settings.local.json`; two approvals
+  at the same moment could lose one.
 - **`--remove` refuses GSD's own leftovers — fixed 9 Nov 2026, not yet
   released.** `real_changes` leaves an untracked `.planning/HANDOFF.json` and a
   `config.json` that differs only in `_auto_chain_active` or formatting out of

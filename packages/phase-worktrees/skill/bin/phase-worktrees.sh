@@ -37,11 +37,11 @@ WHAT EACH WORKTREE GETS
       01-new-settings-page-abc-123
         -> unit/ABC-123-new-settings-page-phase
     Phases with no ticket id fall back to gsd/phase-<n>-<slug>.
-  * A real .claude/ directory holding copies of the main checkout's
-    settings.json and settings.local.json. Copies, not symlinks: Claude Code
-    creates subagent worktrees under .claude/worktrees/, and a symlink puts
-    that path outside the session's writable area, which breaks parallel
-    plan execution inside the phase.
+  * .claude as a symlink to the main checkout's .claude, so permission
+    approvals carry between the phases and the main checkout. When the repo
+    tracks anything under .claude/ in git, a real .claude/ directory with
+    copies of settings.json and settings.local.json instead: a symlink there
+    would show the tracked files as deleted in the worktree.
   * Symlinks to gitignored build directories in the main checkout
     (vendor, node_modules, .venv, target, build) so they are not duplicated.
   * .planning/STATE.md and .planning/ROADMAP.md marked skip-worktree, so
@@ -252,9 +252,28 @@ link_build_dirs() {
   return 0
 }
 
-# A real directory with copied settings — never a symlink. See usage().
+# A symlink to the main checkout's .claude, unless the repo tracks files under
+# .claude/ — then a real directory with copied settings.
+#
+# This used to be copy-only, on the belief that a symlink put .claude/worktrees
+# outside the session's writable area so agent worktrees failed and the wave
+# ran one plan at a time. Tested on 9 Nov 2026 (BACKLOG.md item 2): two
+# identical probes, one copied and one symlinked, both ran two 60-second plans
+# in parallel. Claude Code creates agent worktrees itself, outside the Bash
+# sandbox, and roots them at the main checkout either way. The symlink buys
+# shared permission approvals.
+#
+# The copy stays for repos that track .claude/ content: the worktree checkout
+# already holds those files, and replacing the directory with a symlink makes
+# git in the worktree see every one of them as deleted.
 seed_claude_dir() {
   local wt=$1 f
+  if [ -z "$(git -C "$REPO_ROOT" ls-files -- .claude)" ] && [ ! -e "$wt/.claude" ]; then
+    run mkdir -p "$REPO_ROOT/.claude"
+    run ln -s "$REPO_ROOT/.claude" "$wt/.claude"
+    CLAUDE_LINKED=1
+    return 0
+  fi
   run mkdir -p "$wt/.claude"
   for f in settings.json settings.local.json; do
     [ -f "$REPO_ROOT/.claude/$f" ] || continue
@@ -308,6 +327,8 @@ create_phase() {
 # directory is excluded, not any directory of the same name further down.
 exclude_entries() {
   local ex="$GIT_COMMON/info/exclude" entry entries=(".claude/")
+  # .claude/ matches only a directory; a symlinked .claude is a file to git.
+  [ "${CLAUDE_LINKED:-0}" = 1 ] && entries+=("/.claude")
   case "$WT_ROOT/" in
     "$REPO_ROOT"/?*) entries+=("/${WT_ROOT#"$REPO_ROOT"/}/") ;;
   esac
@@ -321,7 +342,7 @@ exclude_entries() {
     fi
     mkdir -p "${ex%/*}"
     case "$entry" in
-      .claude/) printf '\n# Per-worktree Claude Code config (phase-worktrees)\n%s\n' "$entry" >>"$ex" ;;
+      .claude/|/.claude) printf '\n# Per-worktree Claude Code config (phase-worktrees)\n%s\n' "$entry" >>"$ex" ;;
       *)        printf '\n# Phase worktrees inside the repo (phase-worktrees)\n%s\n' "$entry" >>"$ex" ;;
     esac
     say "  added '$entry' to $ex"

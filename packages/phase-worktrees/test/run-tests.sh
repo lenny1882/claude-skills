@@ -58,11 +58,17 @@ has "$TMP/o" "gsd/phase-2-plain-phase" "no ticket id falls back to gsd/phase-<n>
 [ ! -d "$PROJ/.worktrees" ] && ok "--dry-run creates nothing" || no "--dry-run creates nothing" "worktree dir appeared"
 
 echo "create and remove"
+mkdir -p "$PROJ/.claude"; echo '{"permissions":{"allow":["Bash(make test)"]}}' >"$PROJ/.claude/settings.local.json"
 ( cd "$PROJ" && "$SCRIPT" 1 ) >"$TMP/o" 2>&1
 WT="$PROJ/.worktrees/p1-new-settings-page"
 [ -d "$WT" ] && ok "creates the worktree" || no "creates the worktree" "$(tail -3 "$TMP/o")"
-[ -d "$WT/.claude" ] && [ ! -L "$WT/.claude" ] \
-  && ok ".claude is a real directory, not a symlink" || no ".claude is a real directory, not a symlink" "wrong type — this is the bug the skill exists to avoid"
+[ -L "$WT/.claude" ] && [ "$(readlink "$WT/.claude")" = "$PROJ/.claude" ] \
+  && ok "with nothing under .claude/ tracked, .claude links to the main checkout's" \
+  || no "with nothing under .claude/ tracked, .claude links to the main checkout's" "$(ls -ld "$WT/.claude" 2>&1)"
+[ -z "$(git -C "$WT" status --porcelain)" ] \
+  && ok "the symlinked .claude does not show in the worktree's git status" || no "the symlinked .claude does not show in the worktree's git status" "$(git -C "$WT" status --porcelain | head -3)"
+grep -qx '/.claude' "$PROJ/.git/info/exclude" \
+  && ok "/.claude added to info/exclude for the symlink" || no "/.claude added to info/exclude for the symlink" "$(tail -4 "$PROJ/.git/info/exclude")"
 git -C "$PROJ" branch --list 'unit/*' | grep -q ABC-123 \
   && ok "the branch exists" || no "the branch exists" "no unit/ branch"
 grep -q '^\.claude/$' "$PROJ/.git/info/exclude" 2>/dev/null \
@@ -82,6 +88,8 @@ echo scratch > "$WT/uncommitted.txt"
 [ -d "$WT" ] && ok "refuses to remove with uncommitted changes" || no "refuses to remove with uncommitted changes" "removed anyway"
 ( cd "$PROJ" && "$SCRIPT" --remove --force 1 ) >"$TMP/o" 2>&1
 [ ! -d "$WT" ] && ok "--force removes it" || no "--force removes it" "still there"
+grep -q 'make test' "$PROJ/.claude/settings.local.json" 2>/dev/null \
+  && ok "removing it leaves the main checkout's .claude alone" || no "removing it leaves the main checkout's .claude alone" "main .claude/settings.local.json gone or changed"
 git -C "$PROJ" branch --list 'unit/*' | grep -q ABC-123 \
   && ok "removing keeps the branch" || no "removing keeps the branch" "branch was deleted — committed work would be lost"
 
@@ -106,6 +114,21 @@ printf '{"workflow":{"use_worktrees":false}}\n' >"$WT2/.planning/config.json"
 ( cd "$PROJ" && "$SCRIPT" --remove 2 ) >"$TMP/o" 2>&1
 [ -d "$WT2" ] && ok "a real config.json change still refuses" || no "a real config.json change still refuses" "removed anyway"
 ( cd "$PROJ" && "$SCRIPT" --remove --force 2 ) >"$TMP/o" 2>&1
+
+echo "a repo that tracks .claude/ gets a copy, not a symlink"
+TP="$TMP/tracked"; mkdir -p "$TP/.planning/phases/01-one" "$TP/.claude/commands"
+git -C "$TP" init -q; git -C "$TP" config user.email t@example.com; git -C "$TP" config user.name Test
+echo '{"model":"x"}' >"$TP/.claude/settings.json"; echo 'do it' >"$TP/.claude/commands/go.md"; touch "$TP/.planning/phases/01-one/x"
+git -C "$TP" add -A; git -C "$TP" commit -qm init
+echo '{"permissions":{}}' >"$TP/.claude/settings.local.json"
+( cd "$TP" && "$SCRIPT" 1 ) >"$TMP/o" 2>&1
+TW="$TP/.worktrees/p1-one"
+[ -d "$TW/.claude" ] && [ ! -L "$TW/.claude" ] && ok "tracked .claude/: a real directory" || no "tracked .claude/: a real directory" "$(ls -ld "$TW/.claude" 2>&1)"
+[ -f "$TW/.claude/commands/go.md" ] && [ -f "$TW/.claude/settings.local.json" ] \
+  && ok "tracked files kept and settings.local.json copied" || no "tracked files kept and settings.local.json copied" "$(ls -A "$TW/.claude" 2>&1)"
+[ -z "$(git -C "$TW" status --porcelain)" ] \
+  && ok "tracked .claude/: worktree git status clean" || no "tracked .claude/: worktree git status clean" "$(git -C "$TW" status --porcelain | head -3)"
+( cd "$TP" && "$SCRIPT" --remove 1 ) >"$TMP/o" 2>&1
 
 echo "a root outside the repo"
 ( cd "$PROJ" && "$SCRIPT" --root "$TMP/outside" 2 ) >"$TMP/o" 2>&1
