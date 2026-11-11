@@ -215,6 +215,42 @@ Each item's status was checked against 1.0.0 on 9 Nov 2026.
     Status: **OPEN.** Raised 11 Nov 2026 from the hugoboss-flutter-runner
     session's report.
 
+20. **Nothing but the ssh transport has run end to end.** `README.md` says
+    `TRANSPORT` is read; only `ssh` to the Mac has been driven through start,
+    reload, watch and stop. On 11 Nov 2026 a run with `TRANSPORT=bridge`,
+    `PLATFORM=android`, a throwaway `flutter create` app in the scratchpad
+    and the `Pixel_6_Pro_API_34` emulator on this machine got as far as:
+    app created, emulator booted (`emulator-5554`), `frun.py` launched and
+    `flutter run -d emulator-5554 -t lib/main.dart` running. The first
+    Gradle `assembleDebug` then wrote nothing to the project after 17:43
+    (started 17:33), and at 17:48 the run was killed: `frun.py`, flutter,
+    the Gradle daemon and the emulator stopped, the app deleted, the bridge
+    stopped. Why Gradle stalled was not found — the daemon's own log stops
+    once it hands its output to flutter, which shows only a spinner, and
+    the daemon had no proxy settings.
+
+    Found and fixed on the way, both in the local tests: `start.sh` read
+    `installed-info`'s exit status, and the Android module exits 0 when the
+    app is not installed, so every Android start would have stopped with
+    "already installed"; and the bridge runs each request under `timeout`,
+    which kills its process group, so `frun.py` launched with `nohup` alone
+    would have died a call or two later — it is now started under `setsid`
+    where there is one.
+
+    Also found: hugoboss-flutter-runner cannot be the Android test bed. Its
+    Android build has no product flavours (`applicationId
+    com.example.hugoboss_flutter_runner`), while `maestro-drive`'s `describe`
+    decides `dev` from the iOS project, so 2.0 would pass `--flavor dev` to
+    an Android build that has none. That is `maestro-drive`'s flavour rule
+    (iOS evidence only), not this skill's.
+
+    *Next:* rerun with `flutter run -v` in `frun.py`'s command (or Gradle's
+    `--info` through `ANDROID_*` settings) so the build says what it waits
+    on; the check script is `test/manual/android-bridge.sh` (its paths are
+    this machine's, and its bridge directory is the 11 Nov session's).
+    `TRANSPORT=local` has never run.
+    Status: **OPEN.**
+
 ## Scope
 
 14. **Rebuild as 2.0 on top of `maestro-drive`, as `rrcd` is on `rrc`.**
@@ -275,4 +311,7 @@ Each item's status was checked against 1.0.0 on 9 Nov 2026.
     label, another live run on the same checkout, a live 1.0 run, uncommitted
     work, a commit made there), and two devices ran at once on two
     checkouts, each reloading and stopping on its own. Every 2.0 path has
-    now run on the Mac. Left: merge, release 2.0.0, install it.
+    now run on the Mac. Then, also on the Mac, 5 of 5: a real fast-forward
+    from a new local commit, one save through `watch.sh` since `c3ee011`,
+    `watch.sh`'s exit 2 when the run dies under it, and `PROFILE` layering.
+    Left: merge, release 2.0.0, install it. The bridge transport is item 20.

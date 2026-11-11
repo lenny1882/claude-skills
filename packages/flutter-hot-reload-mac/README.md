@@ -64,7 +64,7 @@ Sourced from `$FHRM_MAESTRO_DRIVE`, or `~/.claude/skills/maestro-drive`, never
 
 There is no config file of its own. The project's `.maestro-drive.conf` is read
 by `maestro-drive`'s loader, so it needs what `maestro-drive` needs over ssh —
-`MAC_HOST`, `MAC_FQDN`, `APP_ID`, `REPO` — and `PROFILE` and `TRANSPORT` work
+`MAC_HOST`, `MAC_FQDN`, `APP_ID`, `REPO` — and `PROFILE` and `TRANSPORT` are read
 here too. This skill adds `WATCH_DIR` (default `lib`). Flavour and entry file
 are `maestro-drive`'s `BUILD_FLAVOR` and `BUILD_TARGET`; 1.0's `FLAVOR` and
 `TARGET` are read with a warning, and `FLUTTER_BIN` is ignored.
@@ -146,6 +146,26 @@ variable listed above. Then, the same day and Mac:
   checkout; each reloaded through its own fifo (220 and 171 ms); stopping the
   first left the second running. Cleaned up after: both stopped, the clone
   deleted, the iPhone 16 shut down.
+- **The rest**, 5 of 5, from a clone of the project in the scratchpad: a new
+  local commit fast-forwarded the branch the Mac had checked out, and the app
+  came up; one save through `watch.sh` after `c3ee011` changed its PID-file
+  read (346 ms reload, screenshot); `watch.sh` exited 2 with the end of the log
+  when the run was stopped under it; a `PROFILE` overlay's values reached this
+  skill, and a missing profile stopped it. The Mac's branch was reset to where
+  it was.
+
+**Only the ssh transport has run end to end.** `TRANSPORT=bridge` with an
+Android emulator on this machine was started on 11 Nov 2026 and stopped
+unfinished: a `flutter create` app was made and `Pixel_6_Pro_API_34` booted
+through `maestro-drive`'s bridge, then the first Gradle `assembleDebug` showed
+no progress for over ten minutes and the run was killed. It found two faults
+on the way, both fixed and covered by the local tests: the Android
+`installed-info` exits 0 whether or not the app is installed, so `start.sh`
+now reads its output, not its status; and the bridge runs each request under
+`timeout`, which kills its process group, so `frun.py` is now started under
+`setsid` where there is one. `TRANSPORT=local` has not run at all.
+
+The scripts behind every check above are in `test/manual/`.
 
 **1.0**, 25 Aug 2026, against `my-mac` and the iPhone 16 Pro simulator, on
 `unit/ABC-124-session-timeout-phase`: four saves synced, hot reloaded and

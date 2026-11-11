@@ -70,7 +70,9 @@ case $1 in
   installed-info) [ "${FAKE_INSTALLED:-0}" = 1 ] && echo container=/x ;;
   screenshot) echo PNG > "$3" ;;
 esac
-[ "$1" != installed-info ] || [ "${FAKE_INSTALLED:-0}" = 1 ]
+# Android's installed-info exits 0 whether or not the app is there; FAKE_ANDROID
+# makes this one do the same, so only its output can say.
+[ "$1" != installed-info ] || [ "${FAKE_INSTALLED:-0}" = 1 ] || [ -n "${FAKE_ANDROID:-}" ]
 SH
 cat > "$MD/runners/flutter/framework.sh" <<'SH'
 #!/bin/sh
@@ -216,6 +218,11 @@ st start --build; rc=$?
 kill "$legacy" 2>/dev/null; wait "$legacy" 2>/dev/null
 [ $rc = 1 ] && grep -q "1.0 run is live" "$TMP/out" \
   && ok "a live 1.0 run is refused, saying how to stop it" || no "a live 1.0 run is refused" "rc=$rc $(cat "$TMP/out")"
+
+FAKE_ANDROID=1 FAKE_INSTALLED=0 st start; rc=$?
+[ $rc = 0 ] && ok "an installed-info that exits 0 but prints nothing is not 'installed' (Android)" \
+  || no "an installed-info that exits 0 but prints nothing is not 'installed'" "rc=$rc $(cat "$TMP/out")"
+st stop
 
 echo "start.sh — a run"
 echo "// edited" >> "$P/lib/main.dart"

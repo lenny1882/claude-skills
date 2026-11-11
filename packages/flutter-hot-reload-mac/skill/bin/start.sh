@@ -85,7 +85,9 @@ _mods() {  # push the runner modules this needs, where they are not already
 }
 _mods || { echo "start: could not copy maestro-drive's runner modules to $(_where)" >&2; exit 1; }
 
-if [ "$BUILD" = 0 ] && _ssh "sh '$PLATFORM_SH' installed-info '$dev' '$APP_ID'" >/dev/null 2>&1; then
+# Installed means installed-info printed something, not that it exited 0: the
+# Android module prints nothing and still exits 0 for an app that is not there.
+if [ "$BUILD" = 0 ] && [ -n "$(_ssh "sh '$PLATFORM_SH' installed-info '$dev' '$APP_ID'" 2>/dev/null)" ]; then
   if ! _alive "$dev" >/dev/null; then
     echo "start: $APP_ID is already installed on $dev." >&2
     echo "  To drive it — tap, type, navigate, test — that is maestro-drive, not this." >&2
@@ -191,7 +193,11 @@ _ssh "rm -f '$RLOG'
 export FRUN_REPO='$REPO' FRUN_DEV='$dev' FRUN_FLUTTER='$FL'
 export FRUN_FLAVOR='$FV' FRUN_TARGET='$TG' FRUN_GEM_HOME='$GH'
 export FRUN_FIFO='$RFIFO' FRUN_LOG='$RLOG' FRUN_PID='$RPID'
-cd '$RDIR' && nohup python3 '$RPY' > '$RERR' 2>&1 < /dev/null &
+# setsid where there is one: over maestro-drive's bridge each request runs under
+# timeout, which kills its whole process group a call or two later, and nohup
+# leaves frun.py in that group. macOS has no setsid; over ssh nohup is enough.
+sid=; command -v setsid >/dev/null 2>&1 && sid=setsid
+cd '$RDIR' && \$sid nohup python3 '$RPY' > '$RERR' 2>&1 < /dev/null &
 sleep 2; echo launched" || exit 1
 
 # A cold build of a branch not built there before takes minutes; an incremental
