@@ -157,18 +157,76 @@ Each item's status was checked against 1.0.0 on 9 Nov 2026.
     the same `pkill`, and `bin/lib.sh:69-73` still fixes the `/tmp/frun.*`
     paths.
 
+19. **No physical-device path.** The skill covers simulators only. On 11 Nov
+    2026 the hugoboss-flutter-runner session ran `flutter run --debug` on a
+    USB iPhone 11 Pro (iOS 26.5.2) from the Mac oi-jamesl-mac (Xcode 27.2,
+    macOS 27.2, Flutter 3.41.9 via fvm) to read `debugPrint` output. It failed
+    three ways:
+    - **No Rosetta.** Flutter's bundled `artifacts/libusbmuxd/iproxy` is
+      x86_64. The app built, installed and launched, then the run died with
+      "Flutter failed to run .../iproxy ... built with the incorrect
+      architecture". Installing Rosetta (sudo, by the user) fixed it.
+    - **LLDB never connects.** With LLDB on: "LLDB is taking longer than
+      expected to start debugging the app", then 11 minutes of silence. lldb
+      was attached and the app running; device support for iPhone12,3 26.5.2
+      was already in `~/Library/Developer/Xcode/iOS DeviceSupport`.
+    - **mDNS discovery fails without LLDB.** With `flutter config
+      --no-enable-lldb-debugging`: "Flutter could not access the local
+      network", "SocketException: Send failed (OS Error: No route to host,
+      errno = 65), address = 0.0.0.0, port = 5353", then "The Dart VM Service
+      was not discovered after 60 seconds". This persisted after Local Network
+      and Automation→Xcode were granted to Terminal and both apps restarted.
+      Default route was en0 via 10.0.52.254.
+
+    Release-mode `flutter run` and `devicectl device process launch --console`
+    show no Dart `print`/`debugPrint` output, so neither replaces a debug run.
+    `log stream` has no device option and `devicectl` has no syslog subcommand.
+    `flutter logs -d <udid>` (idevicesyslog, runnable once Rosetta is in)
+    streams the app's output; it was the only working route found.
+    *Fix:* a physical-device mode, here or in a sibling skill: check for
+    Rosetta (`arch -x86_64 /usr/bin/true`) before launching; detect the LLDB
+    stall and the port-5353 `errno = 65` failure and name them; fall back to
+    `flutter logs -d <udid>` for output.
+    Status: **OPEN.** Raised 11 Nov 2026 from the hugoboss-flutter-runner
+    session's report.
+
 ## Scope
 
-14. **Review against rot and bloat, and how much of this should be
-    `maestro-remote-mac`'s job instead.** `skill/bin/lib.sh`'s `_find_conf` is a
-    byte-for-byte copy of `maestro-remote-mac/src/bin/config.sh`'s (13 lines,
-    only the package name in the error message differs). Past that they've
-    diverged: this skill's `_pick_host`/`_ssh` are an earlier draft of logic
-    `maestro-remote-mac/src/bin/lib.sh` has since grown past — no retry on a
-    slow wake, no re-picking after a stale connection dies mid-command, no
-    `_macip`, no `REMOTE_ENV` for a non-interactive shell's missing PATH — so
-    this skill isn't sharing that plumbing, it's frozen behind it. Work out
-    whether the conf lookup should be the one place that's actually shared, and
-    whether the SSH/host-picking layer should be dropped in favour of calling
-    into `maestro-remote-mac` rather than maintaining a second, drifting copy.
+14. **Rebuild as 2.0 on top of `maestro-drive`, as `rrcd` is on `rrc`.**
+    Raised as a review of how far this skill's copies of `maestro-drive`'s
+    plumbing (then `maestro-remote-mac`) had drifted; answered 11 Nov 2026.
+    The review, the plan and the version check are in `V2-PLAN.md`.
+
+    1.0.0 shares only `.maestro-drive.conf` with `maestro-drive`, and has
+    fallen behind it everywhere they overlap (reviewed against `maestro-drive`
+    at `4475adb`): flavour, entry file and SDK are hard-coded
+    (`bin/lib.sh:55-58`) where `maestro-drive`'s `runners/flutter` derives
+    them from `APP_ID` and refuses when it cannot; the conf carries two key
+    sets for one setting (`FLAVOR`/`TARGET` here, `BUILD_FLAVOR`/
+    `BUILD_TARGET` there); `GEM_HOME` is always set, where `maestro-drive`
+    sets it only when `pod` is missing; only the SSH transport is known, so
+    `TRANSPORT=local` fails with "MAC_HOST is not set"; `_pick_host`/`_ssh`
+    lack the slow-wake retry, the mid-command re-pick and the `$TMO` bound,
+    and `watch.sh`'s raw `ssh`/`scp`/`rsync` bypass `_ssh` entirely; the
+    conf lookup lacks the session cache and `PROFILE` layering; `_dev` picks
+    the first booted simulator without saying so.
+
+    *Plan.* 2.0 sources `maestro-drive`'s `bin/lib.sh` and keeps only what
+    is its own: `frun.py`'s pty and fifo, `watch.sh`, `reload.sh`,
+    `status.sh`, `stop.sh`. `shot.sh` goes (`maestro-drive`'s crops and
+    rotates). `start.sh` gets SDK, flavour and entry file from
+    `framework.sh describe`/`variant-for-appid`, and uses per-device
+    remote paths with a PID file. Install refuses without `maestro-drive`
+    at the library version it needs. Closes items 8, 11, 12 and 18; hands
+    19 to `maestro-drive`'s `ios-device` runner; carries 2, 5, 6, 7, 9, 10,
+    13 and 16.
+
+    *Needs from `maestro-drive` first:* a library version constant (none
+    exists; `rrc-lib.sh`'s `RRC_LIB_VERSION` is the model); a
+    machine-readable `describe`; `runners/flutter/vmservice.sh` reading the
+    per-device log instead of `/tmp/frun.log`; its item 112's label check
+    as a callable function. Closes `maestro-drive` item 93 from this side.
+
+    *Open:* what `start.sh` does with the branch on the shared `$REPO`
+    (refuse when dirty, a worktree per branch, or v1's `git checkout`).
     Status: **OPEN.**
