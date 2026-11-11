@@ -185,12 +185,31 @@ For a session in that repo; nothing has been sent.
    `$RDIR/frun-$DEV.log`, instead of `/tmp/frun.log`.
 4. Its item 112's label check as a function `start.sh` can call.
 
-### Still to decide
+### Branch handling on the shared `$REPO`
 
-Branch handling on the shared `$REPO`, which 1.0 changes with `git checkout`
-(`maestro-drive` item 24): refuse when the Mac's checkout has uncommitted
-changes, a worktree per branch on the Mac, or keep 1.0's behaviour. It changes
-what `start.sh` does, so it needs settling before the build.
+Chosen 11 Nov 2026: **check, then switch.** 1.0 pushes the local branch to
+`$REPO` on the Mac, discards `ios/Podfile.lock` and `pubspec.lock`, runs
+`git checkout <branch>`, then `rsync --delete`s `WATCH_DIR` over the Mac's
+copy — moving HEAD and overwriting `lib/` under any other session using that
+checkout (`maestro-drive` item 24).
+
+2.0 keeps the push and checkout, and refuses when:
+
+- another live run is using that `$REPO` — this skill's `$RDIR/frun-*.pid`
+  files, or a `maestro-drive` label from another session (its item 112's
+  check); or
+- anything is uncommitted outside `WATCH_DIR` and the two lock files. Changes
+  inside `WATCH_DIR` are expected: this skill's own sync put them there.
+
+Two branches at once means a second `REPO`, through a conf profile — the rule
+`maestro-drive` documents in `SKILL.md` ("Reviewing several branches at once").
+
+This goes one step past `maestro-drive`, whose `build.sh` builds whatever is
+checked out and never runs `git checkout`. Not chosen: a worktree per branch
+created by `start.sh` (each needs its own `pub get`, `pod install` and cold
+build, and `maestro-drive` would still read the conf's `REPO`); never touching
+the branch (matches `maestro-drive`, but every switch becomes manual and the
+sync still overwrites another session's `lib/`); keeping 1.0's behaviour.
 
 ## 5. The version check, copied from rrcd
 

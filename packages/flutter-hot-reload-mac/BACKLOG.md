@@ -227,6 +227,10 @@ Each item's status was checked against 1.0.0 on 9 Nov 2026.
     per-device log instead of `/tmp/frun.log`; its item 112's label check
     as a callable function. Closes `maestro-drive` item 93 from this side.
 
-    *Open:* what `start.sh` does with the branch on the shared `$REPO`
-    (refuse when dirty, a worktree per branch, or v1's `git checkout`).
+    *Branch handling, chosen 11 Nov 2026:* `start.sh` keeps the push and
+    `git checkout` on the shared `$REPO`, but refuses when another live run
+    uses that `$REPO` (this skill's PID files, or a `maestro-drive` label
+    from another session) or when anything is uncommitted outside
+    `WATCH_DIR` and the two lock files. Two branches at once means a second
+    `REPO` through a conf profile, as `maestro-drive` documents.
     Status: **OPEN.**
