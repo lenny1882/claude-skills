@@ -1,6 +1,6 @@
 ---
 name: flutter-hot-reload-mac
-description: "BUILD and run this Flutter app from source on the remote Mac's iOS simulator, syncing local code edits via hot reload — every save pushes, reloads, and returns a screenshot. Use when the user wants to build, launch from source, iterate on code changes, or 'watch my changes'. NOT for driving, testing, or interacting with the app UI — tapping, typing, navigating, reproducing bugs, or 'drive the app' — that is maestro-drive. Works in any project; settings come from the same .maestro-drive.conf as maestro-drive."
+description: "BUILD and run this Flutter app from source on the remote Mac's iOS simulator, syncing local code edits via hot reload — every save pushes, reloads, and returns a screenshot. Use when the user wants to build, launch from source, iterate on code changes, or 'watch my changes'. NOT for driving, testing, or interacting with the app UI — tapping, typing, navigating, reproducing bugs, or 'drive the app' — that is maestro-drive. Works in any project; needs maestro-drive installed, and reads the same .maestro-drive.conf."
 allowed-tools:
   - Bash
   - Read
@@ -16,31 +16,61 @@ Mac. This skill keeps the two in step: save a file, and about four seconds
 later the change is on the simulator and a screenshot of it is in the
 conversation.
 
-Nothing is installed on either machine. `.maestro-drive.conf` supplies the Mac,
-the simulator UDID and the checkout path — the same file `maestro-drive`
-reads. Flutter-specific values default to an fvm-pinned SDK and a flavoured
-entrypoint and can be overridden per project or per call:
+It is built on `maestro-drive`, which must be installed: `bin/lib.sh` sources
+its `bin/lib.sh` and refuses any library version but the one it was written
+against. So the conf, the transport, picking the Mac alias, ssh and which
+simulator are all `maestro-drive`'s, from the project's `.maestro-drive.conf`
+(`MAC_HOST`, `MAC_FQDN`, `REPO`, `APP_ID`, `DEV`, `PROFILE`, `TRANSPORT`). The
+SDK, the flavour and the entry file come from `maestro-drive`'s Flutter runner,
+which works them out from the checkout and `APP_ID` and refuses when it cannot.
+
+This skill's own settings, in the same conf or exported for one call:
 
 | variable | default | |
 |---|---|---|
-| `FLUTTER_BIN` | `.fvm/flutter/bin/flutter` | relative to `REPO`, or absolute |
-| `FLAVOR` | `dev` | empty for an unflavoured build |
-| `TARGET` | `lib/main_dev.dart` | |
-| `WATCH_DIR` | `lib` | synced and watched |
+| `WATCH_DIR` | `lib` | synced and watched, relative to both checkouts |
+| `BUILD_FLAVOR` | worked out | `maestro-drive`'s own override, read by both skills |
+| `BUILD_TARGET` | worked out | the same |
+
+1.0's `FLAVOR` and `TARGET` are still read, with a warning to rename them;
+`FLUTTER_BIN` is ignored.
 
 ## Running it
 
 ```sh
 bash $SKILL/bin/start.sh     # push branch, sync, launch, wait for the app
-bash $SKILL/bin/status.sh    # what is running, last reload
+bash $SKILL/bin/status.sh    # every run on the Mac: device, checkout, last reloads
 bash $SKILL/bin/reload.sh    # r by hand; `restart` for R
-bash $SKILL/bin/shot.sh      # one screenshot, prints the local path
-bash $SKILL/bin/stop.sh      # kill the run on the Mac
+bash $SKILL/bin/stop.sh      # stop this device's run, and only that
 ```
+
+`DEV=<udid>` before any of them picks the device; without it, `maestro-drive`
+picks the first booted one and says so when there is more than one. Each
+device has its own run, fifo and log (`$RDIR/frun-<udid>.*`), so two simulators
+can each have one. A screenshot by hand is `maestro-drive`'s
+`bin/driver.sh shot` or `bin/shot.sh`.
 
 Call them with `bash`: the sandbox mounts `~/.claude/skills` read-only, so the
 scripts were written without an execute bit and `chmod` cannot add one from
 here. `remote/frun.py` does not need one — it is run as `python3 frun.py`.
+
+### When start.sh stops
+
+- **Exit 3, the app is already installed.** This skill builds from source. If
+  the user asked to drive, tap, test or reproduce something, that is
+  `maestro-drive` — use it and do not rebuild. Only if they asked to build from
+  source, launch from source, or watch their edits, run `start.sh --build`.
+- **Another session's label on the device**, or **another live run using the
+  same `REPO`**: launching would replace the app or move the checkout under
+  someone else's work. Tell the user which; do not pass `LABEL_GUARD=off`
+  unless they have checked with that session. A second branch at the same time
+  needs a second checkout: `REPO` in a `.maestro-drive.conf.<name>` profile,
+  run with `PROFILE=<name>`.
+- **Uncommitted changes in the Mac's checkout** outside `WATCH_DIR` and the two
+  lock files, when the branch would change: they are someone's work. Report
+  them; `--no-branch` builds the branch that is there as it is.
+- **The flavour cannot be decided**: `maestro-drive`'s reason is printed. Ask
+  which flavour, and set `BUILD_FLAVOR`.
 
 `start.sh` pushes the current branch **to** the Mac's checkout and checks it
 out there, discarding `Podfile.lock` and `pubspec.lock` first — they are build
@@ -63,6 +93,10 @@ thing that lets Claude put the screenshot in front of the user. So the cycle is:
 3. `SendUserFile` that path, captioned with the reload time.
 4. Relaunch `bin/watch.sh` in the background immediately.
 
+If it exits 2, the run has gone — `flutter run` died or was stopped — and the
+output ends with the last of its log. Say so, and do not relaunch the watcher
+until `start.sh` has brought the run back.
+
 Tell the user once that a save landing between steps 3 and 4 is missed and they
 should save again. `--loop` never exits and never surfaces anything — only
 useful when nobody is watching the conversation.
@@ -75,7 +109,7 @@ useful when nobody is watching the conversation.
   its own stdin and dies with `tcgetattr/ioctl: Operation not supported on
   socket`.
 - **`tmux` is not on the Mac**, so the obvious "send keys to a session" route
-  is not available. The fifo at `/tmp/frun.in` replaces it; it is opened
+  is not available. The fifo at `$RDIR/frun-<udid>.in` replaces it; it is opened
   `O_RDWR` so it never sees EOF between writers.
 - **SSH `ControlMaster` fails in this sandbox** — `muxclient socket():
   Operation not permitted`. Every call pays a fresh ~0.4 s connect, which is
@@ -85,7 +119,7 @@ useful when nobody is watching the conversation.
   own PID namespace, so `nohup … &` here dies immediately; only
   `run_in_background: true` persists. On the Mac, `nohup` is fine.
 - **`xcrun simctl io … screenshot`** will not write to `-` or `/dev/stdout`. It
-  writes a file; pull it with `scp`.
+  writes a file, which `maestro-drive`'s `_pull` brings back.
 
 ## Mirroring the simulator here — don't
 

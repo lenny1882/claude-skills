@@ -1,5 +1,5 @@
 #!/bin/bash
-# Send a key to the running `flutter run` and show what it did.
+# Send a key to this device's running `flutter run` and show what it did.
 #
 #   bin/reload.sh          # r — hot reload
 #   bin/reload.sh restart  # R — hot restart (state is lost, use after a
@@ -17,6 +17,9 @@ case "${1:-reload}" in
   *)          key=$1 ;;
 esac
 
-_ssh "test -p $RFIFO" || { echo "no run is listening on $RFIFO — bin/start.sh first" >&2; exit 1; }
-_ssh "printf '%s' '$key' > $RFIFO; sleep 4
-grep -E 'Reloaded .* in |Restarted application|reload.*(failed|rejected)|^Error' $RLOG | tail -3"
+_pick_host || exit 1
+dev=$(_dev) || exit 1
+_paths "$dev"
+_ssh "test -p '$RFIFO'" || { echo "no run is listening on $dev — bin/start.sh first" >&2; exit 1; }
+_ssh "printf '%s' '$key' > '$RFIFO'; sleep 4
+grep -E 'Reloaded .* in |Restarted application|reload.*(failed|rejected)|^Error' '$RLOG' | tail -3"
