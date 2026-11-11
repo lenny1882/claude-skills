@@ -18,9 +18,8 @@ what is this skill's own. The reasons and the plan are in `V2-PLAN.md`; 1.0's
 drift from `maestro-drive` is BACKLOG item 14.
 
 It needs a `maestro-drive` whose `bin/lib.sh` sets
-`MAESTRO_DRIVE_LIB_VERSION=1`. That is on `maestro-drive`'s `main` from
-`2b6d703` and in no release yet: 2.1.1 and earlier have no library version, and
-this refuses them.
+`MAESTRO_DRIVE_LIB_VERSION=1`. That is `maestro-drive` 2.2.0 and later;
+2.1.1 and earlier have no library version, and this refuses them.
 
 No script in `skill/bin/` carries an execute bit — SKILL.md calls them with
 `bash`.
@@ -111,14 +110,31 @@ without being installed.
 
 ## Verified
 
-**2.0**, 11 Nov 2026: `test/run-tests.sh`, 84 checks, against a stand-in
-`maestro-drive` in local transport and a fake `flutter` — start, the guards
-(installed app, another session's label, an undecided flavour, a live 1.0 run,
-another run on the same checkout, uncommitted work outside `WATCH_DIR`), one
-save through the watcher, reload and restart, two devices at once on two
-checkouts, and a stop that leaves the other device's run alone. The last
-section checks the real `maestro-drive` `main` sets the library version and
-every function and variable listed above. **Not yet run against a Mac.**
+**2.0**, 11 Nov 2026, against mac-office and the iPhone 16 Pro simulator
+(`C61983AE-1974-4ACD-8087-8FD849CF89B1`), from the hugoboss-flutter-runner
+project on `unit/HBD20-1770-idcloud-search-deeplink-quick`, with
+`maestro-drive` 2.2.0 installed:
+
+- `start.sh --build` pushed the branch, moved the Mac checkout onto it from
+  `feature/pre-peak-release`, synced `lib/` and launched; `describe --env`
+  gave `dev` and `lib/main_dev.dart`, what 1.0 used by default
+- `reload.sh` 161 ms; `reload.sh restart` 438 ms; `status.sh` named the
+  device, the checkout and the branch, under the Mac's zsh
+- one save through `watch.sh`: synced, reloaded 1 of 2604 libraries in
+  345 ms, screenshot fetched, exit 0
+- `stop.sh` stopped frun.py and flutter, nothing left running; a second stop
+  said nothing was running
+
+Two faults found there and fixed: a restart on the branch the Mac already has
+checked out failed at the push (`receive.denyCurrentBranch` is unset there, so
+git refuses), and zsh printed "no such file or directory" for a PID file not
+yet written. `test/run-tests.sh`, 86 checks, covers both, against a stand-in
+`maestro-drive` in local transport and a fake `flutter`, plus checks that the
+real `maestro-drive` `main` sets the library version and every function and
+variable listed above. Not run on the Mac: two devices at once, and the
+guards (another session's label, a live 1.0 run, another run on the same
+checkout, uncommitted work, a commit made on the Mac), which only the local
+tests cover.
 
 **1.0**, 25 Aug 2026, against `my-mac` and the iPhone 16 Pro simulator, on
 `unit/ABC-124-session-timeout-phase`: four saves synced, hot reloaded and

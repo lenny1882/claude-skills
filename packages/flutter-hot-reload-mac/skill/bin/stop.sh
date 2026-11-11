@@ -18,7 +18,7 @@ _paths "$dev"
 
 # frun.py's SIGTERM handler stops flutter (its own process group) before it
 # exits. If frun.py is wedged, the group is killed directly after ten seconds.
-_ssh "if read p fl r < '$RPID' 2>/dev/null; then
+_ssh "if [ -r '$RPID' ] && read p fl r < '$RPID'; then
   kill \"\$p\" 2>/dev/null
   i=0; while kill -0 \"\$p\" 2>/dev/null && [ \$i -lt 10 ]; do sleep 1; i=\$((i+1)); done
   kill -9 \"\$p\" 2>/dev/null; kill -9 -\"\$fl\" 2>/dev/null

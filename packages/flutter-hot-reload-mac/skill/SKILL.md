@@ -74,7 +74,11 @@ here. `remote/frun.py` does not need one — it is run as `python3 frun.py`.
 
 `start.sh` pushes the current branch **to** the Mac's checkout and checks it
 out there, discarding `Podfile.lock` and `pubspec.lock` first — they are build
-output on that machine and block the checkout every time. Never `git push`
+output on that machine and block the checkout every time. The push goes to
+`refs/remotes/fhrm/<branch>` there and the branch is fast-forwarded to it, since
+git refuses a push to the branch a checkout has checked out. If the branch there
+has a commit this checkout does not — rewritten here, or committed to there —
+`start.sh` refuses rather than overwrite it; report that. Never `git push`
 **from** the Mac. `--no-branch` skips all of that and syncs the working tree
 onto whatever branch is already there.
 

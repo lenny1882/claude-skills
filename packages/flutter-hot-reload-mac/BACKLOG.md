@@ -261,5 +261,13 @@ Each item's status was checked against 1.0.0 on 9 Nov 2026.
     Status: **BUILT 11 Nov 2026, not released.** `maestro-drive`'s four
     changes are on its `main` (`2b6d703`), unreleased. 2.0 is on branch
     `flutter-hot-reload-mac-v2`: 84 tests against a stand-in `maestro-drive`
-    pass, and the contract checks against its `main` pass. Not yet run
-    against a Mac. Releasing needs a `maestro-drive` release first.
+    pass, and the contract checks against its `main` pass. Releasing needs
+    a `maestro-drive` release first.
+    **Run against the Mac 11 Nov 2026** (mac-office, iPhone 16 Pro,
+    hugoboss-flutter-runner, `maestro-drive` 2.2.0): start, reload, restart,
+    status, one save through the watcher and stop all worked. It found two
+    faults, both fixed: a restart on the branch already checked out there
+    failed at the push (the Mac refuses pushes to its checked-out branch), so
+    `start.sh` now pushes to `refs/remotes/fhrm/<branch>` and fast-forwards
+    there, refusing when a commit was made there; and zsh reported a missing
+    PID file. 86 tests. `maestro-drive` 2.2.0 is released.

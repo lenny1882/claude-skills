@@ -112,5 +112,5 @@ _sync() {
 # Is the run on this device alive? Prints its pid line when it is.
 _alive() {  # _alive <udid>
   _paths "$1"
-  _ssh "read p f r < '$RPID' 2>/dev/null && kill -0 \"\$p\" 2>/dev/null && echo \"\$p \$f \$r\""
+  _ssh "[ -r '$RPID' ] && read p f r < '$RPID' && kill -0 \"\$p\" 2>/dev/null && echo \"\$p \$f \$r\""
 }

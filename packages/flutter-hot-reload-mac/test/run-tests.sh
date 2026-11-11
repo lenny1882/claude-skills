@@ -185,7 +185,8 @@ echo "void main() {}" > "$P/lib/main.dart"; echo readme > "$P/README"
 git -C "$P" add -A; git -C "$P" -c user.name=t -c user.email=t@t commit -qm one
 git -C "$P" branch -M main
 for c in "$B" "$B2"; do
-  git clone -q "$P" "$c"; git -C "$c" config receive.denyCurrentBranch ignore
+  # Left at git's default, as on the Mac: a push to the checked-out branch is refused.
+  git clone -q "$P" "$c"
 done
 git -C "$P" switch -qc feature
 cat > "$P/.maestro-drive.conf" <<EOF
@@ -287,6 +288,15 @@ git -C "$B" checkout -q -- README
 st start --build; rc=$?
 [ $rc = 0 ] && [ "$(git -C "$B" rev-parse --abbrev-ref HEAD)" = feature ] \
   && ok "changes only inside WATCH_DIR do not stop it" || no "changes only inside WATCH_DIR do not stop it" "rc=$rc $(cat "$TMP/out")"
+echo "readme 2" > "$P/README"; git -C "$P" -c user.name=t -c user.email=t@t commit -qam two
+st start --build; rc=$?
+[ $rc = 0 ] && [ "$(git -C "$B" rev-parse HEAD)" = "$(git -C "$P" rev-parse HEAD)" ] && [ "$(cat "$B/README")" = "readme 2" ] \
+  && ok "a new commit on the branch already checked out there fast-forwards it" \
+  || no "a new commit on the branch already checked out there fast-forwards it" "rc=$rc $(cat "$TMP/out")"
+echo theirs > "$B/other.txt"; git -C "$B" add other.txt; git -C "$B" -c user.name=t -c user.email=t@t commit -qm theirs
+st start --build; rc=$?
+[ $rc = 1 ] && grep -q "has commits this checkout does not" "$TMP/out" && [ -f "$B/other.txt" ] \
+  && ok "a commit made there is not overwritten" || no "a commit made there is not overwritten" "rc=$rc $(cat "$TMP/out")"
 st stop
 
 echo "installer — maestro-drive"

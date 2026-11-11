@@ -42,7 +42,7 @@ while true; do
     _sync >/dev/null 2>&1
     echo "$(date +%H:%M:%S) saved: $(echo "$changed" | tr '\n' ' ')"
     # One round trip: the run is still there, the reload, the frame, the result.
-    out=$(_ssh "read p fl r < '$RPID' 2>/dev/null && kill -0 \"\$p\" 2>/dev/null || { echo RUN-GONE; tail -5 '$RLOG' 2>/dev/null; exit 0; }
+    out=$(_ssh "[ -r '$RPID' ] && read p fl r < '$RPID' && kill -0 \"\$p\" 2>/dev/null || { echo RUN-GONE; tail -5 '$RLOG' 2>/dev/null; exit 0; }
 printf 'r' > '$RFIFO'
 sleep 3
 sh '$PLATFORM_SH' screenshot '$dev' '$RSHOT'

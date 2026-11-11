@@ -125,32 +125,50 @@ _fs_shared && [ "$PROJECT_DIR" -ef "$REPO" ] && same_checkout=1
 if [ "$BRANCH_SYNC" = 1 ] && [ "$same_checkout" = 0 ]; then
   branch=$(git -C "$PROJECT_DIR" rev-parse --abbrev-ref HEAD) || exit 1
   there=$(_ssh "git -C '$REPO' rev-parse --abbrev-ref HEAD") || exit 1
-  if [ "$there" != "$branch" ]; then
-    # Uncommitted work outside what this skill syncs is someone's, and a
-    # checkout would carry it onto another branch or refuse halfway. WATCH_DIR
-    # is expected to differ — the last sync put it there — and the two lock
-    # files are build output there.
-    dirty=$(_ssh "git -C '$REPO' status --porcelain --untracked-files=no -- . \
-      ':(exclude)$WATCH_DIR' ':(exclude)ios/Podfile.lock' ':(exclude)pubspec.lock'")
-    if [ -n "$dirty" ]; then
-      echo "start: $REPO on $(_where) is on $there with uncommitted changes:" >&2
-      printf '%s\n' "$dirty" | sed 's/^/    /' >&2
-      echo "  Checking out $branch there would carry them across or stop halfway." >&2
-      echo "  Commit or discard them there, or --no-branch to build $there as it is." >&2
-      exit 1
-    fi
+  # Uncommitted work outside what this skill syncs is someone's: a checkout
+  # would carry it onto another branch or stop halfway, and a fast-forward
+  # would refuse or mix it in. WATCH_DIR is expected to differ — the last sync
+  # put it there — and the two lock files are build output there.
+  dirty=$(_ssh "git -C '$REPO' status --porcelain --untracked-files=no -- . \
+    ':(exclude)$WATCH_DIR' ':(exclude)ios/Podfile.lock' ':(exclude)pubspec.lock'")
+  if [ -n "$dirty" ]; then
+    echo "start: $REPO on $(_where) is on $there with uncommitted changes:" >&2
+    printf '%s\n' "$dirty" | sed 's/^/    /' >&2
+    echo "  Moving it to $branch would carry them across or stop halfway." >&2
+    echo "  Commit or discard them there, or --no-branch to build $there as it is." >&2
+    exit 1
   fi
   echo "pushing $branch to $(_where):$REPO"
   # Pushing TO the build checkout is how a branch gets there. Never push FROM it.
-  if _fs_shared; then
-    git -C "$PROJECT_DIR" push "$REPO" "$branch" || exit 1
-  else
-    GIT_SSH_COMMAND="ssh ${SSH_OPTS[*]}" git -C "$PROJECT_DIR" push "$MAC_HOST:$REPO" "$branch" || exit 1
-  fi
-  if [ "$there" != "$branch" ]; then
-    _ssh "cd '$REPO' && git checkout -- ios/Podfile.lock pubspec.lock 2>/dev/null;
-          git checkout '$branch' 2>&1 | tail -2" || exit 1
-  fi
+  # Into refs/remotes/fhrm/, never refs/heads/: a non-bare repo refuses a push
+  # to the branch it has checked out (receive.denyCurrentBranch), which is the
+  # branch every restart pushes. The branch itself is then moved there, below.
+  dest="$REPO"; _fs_shared || dest="$MAC_HOST:$REPO"
+  GIT_SSH_COMMAND="ssh ${SSH_OPTS[*]}" git -C "$PROJECT_DIR" \
+    push -q "$dest" "+$branch:refs/remotes/fhrm/$branch" || exit 1
+  # WATCH_DIR and the lock files go back to HEAD first — the sync puts this
+  # checkout's WATCH_DIR back straight after. A branch that is not a
+  # fast-forward of what is there was rewritten here, or committed to there;
+  # either way it is not this script's to overwrite.
+  moved=$(_ssh "cd '$REPO' || exit 1
+for f in '$WATCH_DIR' ios/Podfile.lock pubspec.lock; do git checkout -q -- \"\$f\" 2>/dev/null; done   # one by one: a path that is not there would stop all three
+if git rev-parse -q --verify 'refs/heads/$branch' >/dev/null; then
+  git merge-base --is-ancestor 'refs/heads/$branch' 'refs/remotes/fhrm/$branch' || { echo NOT-FF; exit 0; }
+  [ '$there' = '$branch' ] || git checkout -q '$branch' || { echo CHECKOUT-FAILED; exit 0; }
+  git merge -q --ff-only 'refs/remotes/fhrm/$branch' || { echo MERGE-FAILED; exit 0; }
+else
+  git checkout -q -b '$branch' 'refs/remotes/fhrm/$branch' || { echo CHECKOUT-FAILED; exit 0; }
+fi
+echo \"on \$(git rev-parse --abbrev-ref HEAD) \$(git log -1 --format=%h)\"") || exit 1
+  case $moved in
+    on\ *) echo "  $moved" ;;
+    NOT-FF)
+      echo "start: $branch in $REPO on $(_where) has commits this checkout does not." >&2
+      echo "  It was rewritten here (a rebase or amend) or committed to there. Neither is" >&2
+      echo "  this script's to overwrite. Look there, or --no-branch to build it as it is." >&2
+      exit 1 ;;
+    *) echo "start: could not move $REPO on $(_where) to $branch ($moved)" >&2; exit 1 ;;
+  esac
 fi
 
 if [ "$same_checkout" = 0 ]; then
