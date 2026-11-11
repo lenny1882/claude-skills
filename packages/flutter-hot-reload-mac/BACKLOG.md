@@ -271,3 +271,8 @@ Each item's status was checked against 1.0.0 on 9 Nov 2026.
     `start.sh` now pushes to `refs/remotes/fhrm/<branch>` and fast-forwards
     there, refusing when a commit was made there; and zsh reported a missing
     PID file. 86 tests. `maestro-drive` 2.2.0 is released.
+    Then on the Mac: every guard refused as it should (another session's
+    label, another live run on the same checkout, a live 1.0 run, uncommitted
+    work, a commit made there), and two devices ran at once on two
+    checkouts, each reloading and stopping on its own. Every 2.0 path has
+    now run on the Mac. Left: merge, release 2.0.0, install it.

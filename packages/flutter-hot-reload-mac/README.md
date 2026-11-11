@@ -131,10 +131,21 @@ git refuses), and zsh printed "no such file or directory" for a PID file not
 yet written. `test/run-tests.sh`, 86 checks, covers both, against a stand-in
 `maestro-drive` in local transport and a fake `flutter`, plus checks that the
 real `maestro-drive` `main` sets the library version and every function and
-variable listed above. Not run on the Mac: two devices at once, and the
-guards (another session's label, a live 1.0 run, another run on the same
-checkout, uncommitted work, a commit made on the Mac), which only the local
-tests cover.
+variable listed above. Then, the same day and Mac:
+
+- **The guards**, 6 of 6: `start.sh --build` refused, with the expected
+  message and before any build, for another session's label on the device
+  today, another live run on the same checkout (a pid file pointing at a live
+  process), a live 1.0 run (a process named `/tmp/frun.py`), an uncommitted
+  `README.md` in the Mac checkout, and a commit made on the Mac. Each set-up
+  was undone and nothing was left behind.
+- **Two devices at once**, 6 of 6: the iPhone 16 Pro on the project's
+  checkout (up in 43 s) and an iPhone 16 (`CCF89EAD-…`) on a second checkout
+  cloned to `/tmp/fhrm-second-checkout` (cold build, up in 81 s), with `REPO`
+  and `DEV` exported. `status.sh` showed both alive, each from its own
+  checkout; each reloaded through its own fifo (220 and 171 ms); stopping the
+  first left the second running. Cleaned up after: both stopped, the clone
+  deleted, the iPhone 16 shut down.
 
 **1.0**, 25 Aug 2026, against `my-mac` and the iPhone 16 Pro simulator, on
 `unit/ABC-124-session-timeout-phase`: four saves synced, hot reloaded and

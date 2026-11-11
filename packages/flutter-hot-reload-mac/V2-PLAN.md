@@ -175,7 +175,8 @@ Sourcing runs no remote commands. It does `mkdir -p "$LDIR"`, exports every
 
 ### Needed in maestro-drive first
 
-For a session in that repo; nothing has been sent.
+Sent 11 Nov 2026 to the `maestro-drive-f2` session. All four are on
+`maestro-drive`'s `main` at `2b6d703` and released in 2.2.0.
 
 1. A library version constant in `bin/lib.sh` (see section 5).
 2. A machine-readable `framework.sh describe` — for example `describe --env`
@@ -238,7 +239,6 @@ Two differences from `rrc`:
   exits the caller when the conf is incomplete. Right for 2.0, but the version
   check can't run before the conf check, so `verify_probe` (no project) must
   set `MAESTRO_DRIVE_CONF` to a minimal test conf.
-- The constant doesn't exist yet. Until it does, the only check is the
-  `VERSION` file in `/mnt/sda/User/Programs/claude-tools/maestro-drive/`,
-  which is absent for a `--link` install and ties 2.0 to release numbers
-  rather than the library's interface.
+- The constant did not exist when this was written; `maestro-drive` added it
+  (`MAESTRO_DRIVE_LIB_VERSION=1`, `2b6d703`, released in 2.2.0), with the
+  version-1 function list in its `test/run-tests.sh`.
