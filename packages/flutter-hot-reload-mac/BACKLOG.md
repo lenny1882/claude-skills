@@ -385,6 +385,72 @@ Each item's status was checked against 1.0.0 on 9 Nov 2026, and against
     (iOS evidence only), not this skill's.
     Status: **DONE in 2.0.0 (12 Nov 2026).**
 
+21. **No phone launch: `start.sh` uses none of `maestro-drive`'s phone
+    checks.** Item 19 went to `maestro-drive`, which added three Mac-side
+    commands to `runners/flutter/framework.sh` as its item 176 (`ce8045f` on
+    its `main`, 12 Nov 2026, not released):
+    - `device-check <flutter-bin>`: exit 1 naming Rosetta when Flutter's
+      `iproxy` is x86_64 only and `arch -x86_64` fails.
+    - `run-diagnose <flutter-run-log>`: names ROSETTA, LLDB STALL, MDNS
+      BLOCKED or NO VM SERVICE; exit 1 when the log shows none.
+    - `logs <udid> <flutter-bin>`: `device-check`, then `flutter logs -d`.
+
+    Its session suggested: `start.sh` calls `device-check` before a phone
+    launch, `run-diagnose` on `frun-<udid>.log` when the VM Service is not
+    found or the LLDB line appears, and `logs` for the app's output.
+
+    Found while reading for this, and not in that suggestion: a phone build
+    has to be signed, and `codesign` over ssh fails with
+    `errSecInternalComponent` (`maestro-drive`'s `physical-device.md`).
+    `maestro-drive`'s own phone build gets round it by running in the Mac's
+    GUI Terminal through `osascript` (`runners/flutter/build.sh:292`).
+    `frun.py` is started over ssh, so `flutter run` on a phone would fail at
+    signing before any of the three failures above. Whether it does is
+    unmeasured: on 11 Nov the hugoboss-flutter-runner session's run built and
+    installed, but how it was started is not recorded.
+
+    *Chosen 12 Nov 2026: build with `maestro-drive`, run over ssh.*
+    `start.sh` builds the signed debug app with `maestro-drive`'s
+    `runners/flutter/build.sh --device <udid> --debug --build-only`, which
+    builds in the Mac's GUI Terminal, and reads its `MMARTIFACT` line.
+    `frun.py` then runs `flutter run --use-application-binary <app>` over ssh,
+    so the run itself never signs. Not chosen: starting `frun.py` in the GUI
+    Terminal through `osascript`, which would open a Terminal window per run.
+    Whether hot reload works on a phone with `--use-application-binary` is
+    unmeasured.
+    Needs from `maestro-drive`: `--device` takes `--debug`. It builds
+    `flutter build ios --profile` today (`build.sh:265`), and a profile build
+    cannot hot reload. Asked of the maestro-drive-4a session 12 Nov 2026.
+
+    The rest of the plan:
+    1. `PLATFORM=ios-device` in the conf picks the phone; that runner's
+       `installed-info` and `screenshot` keep the exit-3 stop and the
+       watcher's screenshot working.
+    2. `framework.sh device-check <flutter>` before the build; exit 1 stops
+       with its text.
+    3. The build and launch above.
+    4. For a phone, the wait stops on "incorrect architecture", "LLDB is
+       taking longer" or "VM Service was not discovered", runs
+       `run-diagnose` on `frun-<udid>.log`, prints it and exits 1.
+    5. `bin/logs.sh` runs `framework.sh logs`, logging to a file, for the
+       app's output.
+    6. An installed `maestro-drive` without these commands stops `start.sh`,
+       saying to update it.
+    7. `test/run-tests.sh`: stand-in `ios-device` runner and fake
+       `device-check`/`run-diagnose`; a refused check stops before any
+       launch; an LLDB line gives the diagnosis and exit 1; the contract check
+       finds the three commands on `maestro-drive`'s `main`.
+    8. `test/manual/mac-phone.sh` on oi-jamesl-mac with a USB iPhone:
+       `device-check`, build, launch, reload, a watcher save with a phone
+       screenshot, `logs.sh`, stop.
+    9. `SKILL.md` phone section, README, `test/manual/README.md`.
+
+    Blocked on: a `maestro-drive` release carrying `ce8045f`; Rosetta on
+    oi-jamesl-mac, missing again since macOS 27.2.1 (`arch -x86_64`: "Bad
+    CPU type"), which needs sudo there; and a USB iPhone on that Mac for the
+    test run.
+    Status: **OPEN**, raised 12 Nov 2026.
+
 ## Scope
 
 14. **Rebuild as 2.0 on top of `maestro-drive`, as `rrcd` is on `rrc`.**
