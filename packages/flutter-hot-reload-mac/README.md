@@ -12,7 +12,7 @@ that are each versioned, released and installed on their own.
 
 ## Status
 
-2.0, not yet released. Rebuilt on `maestro-drive`, as `rrcd` is built on
+2.0.0, released 12 Nov 2026. Rebuilt on `maestro-drive`, as `rrcd` is built on
 `rrc`: `skill/bin/lib.sh` sources `maestro-drive`'s `bin/lib.sh` and keeps only
 what is this skill's own. The reasons and the plan are in `V2-PLAN.md`; 1.0's
 drift from `maestro-drive` is BACKLOG item 14.
