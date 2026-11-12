@@ -1,6 +1,6 @@
 ---
 name: flutter-hot-reload-mac
-description: "BUILD and run this Flutter app from source on the remote Mac's iOS simulator, syncing local code edits via hot reload — every save pushes, reloads, and returns a screenshot. Use when the user wants to build, launch from source, iterate on code changes, or 'watch my changes'. NOT for driving, testing, or interacting with the app UI — tapping, typing, navigating, reproducing bugs, or 'drive the app' — that is maestro-drive. Works in any project; needs maestro-drive installed, and reads the same .maestro-drive.conf."
+description: "BUILD and run this Flutter app from source on the remote Mac's iOS simulator or a USB iPhone, syncing local code edits via hot reload — every save pushes, reloads, and returns a screenshot. Use when the user wants to build, launch from source, iterate on code changes, or 'watch my changes'. NOT for driving, testing, or interacting with the app UI — tapping, typing, navigating, reproducing bugs, or 'drive the app' — that is maestro-drive. Works in any project; needs maestro-drive installed, and reads the same .maestro-drive.conf."
 allowed-tools:
   - Bash
   - Read

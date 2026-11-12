@@ -178,6 +178,11 @@ Since, as of 12 Nov 2026 (`BACKLOG.md` has each): 2 done in 2.0.0, where
 `main`, not released, and run on the Mac by `test/manual/mac-errors.sh`; 16
 deferred. 5, 6, 7 and 9 done on `main`, not released (`f7f092d`), tested
 against the stand-in only. 19 handed to `maestro-drive`'s `ios-device` runner.
+Later the same day 5, 6, 7 and 9 ran on the Mac and the Android emulator, and
+item 21 used `maestro-drive` 2.3.0's phone commands for hot reload on a
+physical iPhone. Of `maestro-drive`'s item 93 (this skill using its Flutter
+runner commands), `describe` and, on a phone, `build` are used; `inspect` is
+not.
 
 ### Needed in maestro-drive first
 

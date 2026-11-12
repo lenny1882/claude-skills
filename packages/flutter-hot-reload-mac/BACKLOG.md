@@ -337,6 +337,7 @@ Each item's status was checked against 1.0.0 on 9 Nov 2026, and against
     module (`V2-PLAN.md`, item 14). The Rosetta check, the LLDB-stall and
     port-5353 detection, and the `flutter logs` fallback belong there. Nothing
     is left to do here; the maestro-drive session was told the same day.
+    Using what `maestro-drive` built for it is item 21.
 
 20. **Nothing but the ssh transport had run end to end.** On 12 Nov 2026
     `test/manual/android-bridge.sh` passed 10 of 10 with `TRANSPORT=bridge`

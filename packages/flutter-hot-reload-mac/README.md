@@ -17,6 +17,11 @@ that are each versioned, released and installed on their own.
 what is this skill's own. The reasons and the plan are in `V2-PLAN.md`; 1.0's
 drift from `maestro-drive` is BACKLOG item 14.
 
+On `main` since 2.0.0, not released: execute bits (BACKLOG item 5), saves
+between watcher runs (6), assets and rebuild-only files (7), fewer polls in
+`start.sh` (9), a dead run noticed between saves (10), errors read back (13),
+and a physical iPhone (21). Each has run on real devices; see "Verified".
+
 It needs a `maestro-drive` whose `bin/lib.sh` sets
 `MAESTRO_DRIVE_LIB_VERSION=1`. That is `maestro-drive` 2.2.0 and later;
 2.1.1 and earlier have no library version, and this refuses them. A physical
