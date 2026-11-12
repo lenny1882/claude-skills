@@ -27,7 +27,8 @@ Each item's status was checked against 1.0.0 on 9 Nov 2026.
    **DONE in 2.0, not released.** 84 checks; every script runs end to end
    against a stand-in `maestro-drive` in local transport and a fake flutter,
    `watch.sh`'s detection included (one save → sync → reload → screenshot).
-   None of it has run against a Mac.
+   Since run against the Mac and on Android: the scripts in `test/manual/`
+   (item 14, item 20). 88 checks on 12 Nov 2026.
 
 3. **No git.** Same gap as `maestro-remote-mac`.
    Status: **DONE.** The package lives in `claude-skills`, at
@@ -326,4 +327,6 @@ Each item's status was checked against 1.0.0 on 9 Nov 2026.
     now run on the Mac. Then, also on the Mac, 5 of 5: a real fast-forward
     from a new local commit, one save through `watch.sh` since `c3ee011`,
     `watch.sh`'s exit 2 when the run dies under it, and `PROFILE` layering.
-    Left: merge, release 2.0.0, install it. The bridge transport is item 20.
+    Left: merge, release 2.0.0, install it. The bridge and local transports
+    are item 20, done 12 Nov 2026; the Mac checks were rerun that day after
+    `reload.sh` and `watch.sh` began waiting for flutter's answer (88 tests).
