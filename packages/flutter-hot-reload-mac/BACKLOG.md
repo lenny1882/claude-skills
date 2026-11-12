@@ -48,6 +48,12 @@ Each item's status was checked against 1.0.0 on 9 Nov 2026, and against
    git and 664 when installed, and `install.sh` only sets execute bits on
    `FILES`, which this package leaves empty. `SKILL.md` calls each script with
    `bash`.
+   **DONE on `main`, not released (12 Nov 2026).** `chmod` works in the
+   checkout; only the installed copy under `~/.claude/skills` is read-only
+   from the sandbox. `start`, `watch`, `reload`, `status` and `stop` are mode
+   100755 in git. `git archive` keeps the mode in the release tarball and
+   `install.sh`'s `cp -r` keeps it on install. Tested: the installed scripts are
+   executable, and git has the bit. `SKILL.md` still calls them with `bash`.
 
 ## Behaviour
 
@@ -56,11 +62,40 @@ Each item's status was checked against 1.0.0 on 9 Nov 2026, and against
    between the exit and the relaunch is not seen. A queue file the next run
    drains would close it.
    Status: **OPEN.** Unchanged in 1.0.0; `watch.sh`'s header documents the gap.
+   **DONE on `main`, not released (12 Nov 2026).** No queue file was needed.
+   The marker now persists between runs, so a save made while no watcher runs
+   is newer than it, and the next run handles it at once. `watch.sh` only
+   creates the marker when it is missing, and `start.sh` resets it after its
+   sync. A run takes the new marker after the 0.4 s settle and before its final
+   look, so a save after that look goes to the next run. Tested: a save made
+   between two runs is synced and reloaded within 5 s of the next run
+   starting, and the run after that does not replay it.
 
 7. **Only `lib/**/*.dart` is watched.** Assets, translation JSON, `pubspec.yaml`
    and iOS native code are neither synced nor reloaded — the last two need a
    full rebuild, not a reload, and nothing says so when they change.
    Status: **OPEN.** `watch.sh` still finds only `*.dart` under `WATCH_DIR`.
+   **DONE on `main`, not released (12 Nov 2026).** Three settings in
+   `bin/lib.sh`, each a space-separated list of project paths:
+   - `WATCH_DIR` (`lib`): every file is now watched, not just `*.dart`.
+     Synced, then hot reload.
+   - `WATCH_ASSETS` (`assets`): synced, then hot restart, because a reload
+     keeps the old image in Flutter's image cache.
+   - `WATCH_REBUILD` (`pubspec.yaml ios android`): not synced. Each changed
+     file is printed as a `REBUILD:` line, and the one-shot mode exits 4 with
+     "Commit it, then bin/start.sh --build".
+   Not counted as saves: dotfiles, editor backups (`*~`, `*.swp`, `*.tmp`),
+   `Pods`, `.symlinks`, `ephemeral`, `build`, `.gradle`, `.dart_tool`, `.cxx`,
+   and the files `flutter pub get` regenerates. `start.sh` syncs
+   `WATCH_ASSETS` with `WATCH_DIR` and leaves both out of its uncommitted-work
+   check. The first run of the new tests found that this was needed: assets
+   the watcher had synced were refused as someone's work. Deletions are only
+   synced when another file in that directory is saved, as before.
+   Tested against the stand-in, not yet on a real Flutter run: an asset save
+   is synced and restarted; a `pubspec.yaml` save is not synced and exits 4; a
+   code save together with an `ios/Runner` save reloads and lists the native
+   file; `ios/Pods` and editor backups trigger nothing. Whether Flutter's
+   restart picks up a changed asset on a real run is unchecked.
 
 8. **One simulator.** `DEV` picks a single device; the iPad booted alongside it
    is ignored. Reloading both would mean two `flutter run`s, so two fifos and
@@ -72,6 +107,14 @@ Each item's status was checked against 1.0.0 on 9 Nov 2026, and against
 9. **`start.sh` waits up to ten minutes** in ten-second SSH polls. A cold build
    is minutes, so this is right, but each poll is a fresh connection.
    Status: **OPEN.**
+   **DONE on `main`, not released (12 Nov 2026).** The log is now read on the
+   Mac, every `START_POLL` seconds (2), inside one connection that lasts up to
+   `START_CHUNK` seconds (120), with `TMO` raised to match for that call. So a
+   ten-minute build uses five connections instead of sixty, and the app being
+   up is seen within 2 s instead of 10. `START_WAIT` (600) is the whole wait,
+   replacing `START_TRIES` × `START_POLL`. A connection that returns nothing is
+   retried rather than read as a failure. Tested: a 4 s build is waited for in
+   at most 2 connections; `START_WAIT=4` gives up after 4 s.
 
 10. **Nothing notices when `flutter run` dies.** The log gets
     `[frun] flutter run exited`; the watcher keeps syncing into a dead app and
@@ -270,6 +313,11 @@ Each item's status was checked against 1.0.0 on 9 Nov 2026, and against
     `flutter logs -d <udid>` for output.
     Status: **OPEN.** Raised 11 Nov 2026 from the hugoboss-flutter-runner
     session's report.
+    **HANDED TO `maestro-drive` (12 Nov 2026).** 2.0 sits on `maestro-drive`
+    and reuses its runners, and a physical iPhone is its `runners/ios-device`
+    module (`V2-PLAN.md`, item 14). The Rosetta check, the LLDB-stall and
+    port-5353 detection, and the `flutter logs` fallback belong there. Nothing
+    is left to do here; the maestro-drive session was told the same day.
 
 20. **Nothing but the ssh transport had run end to end.** On 12 Nov 2026
     `test/manual/android-bridge.sh` passed 10 of 10 with `TRANSPORT=bridge`

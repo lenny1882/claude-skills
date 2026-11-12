@@ -21,8 +21,8 @@ It needs a `maestro-drive` whose `bin/lib.sh` sets
 `MAESTRO_DRIVE_LIB_VERSION=1`. That is `maestro-drive` 2.2.0 and later;
 2.1.1 and earlier have no library version, and this refuses them.
 
-No script in `skill/bin/` carries an execute bit — SKILL.md calls them with
-`bash`.
+The scripts in `skill/bin/` carry an execute bit since 2.1 (BACKLOG item 5);
+SKILL.md still calls them with `bash`.
 
 ## What is in it
 
@@ -31,7 +31,7 @@ No script in `skill/bin/` carries an execute bit — SKILL.md calls them with
 | `skill/SKILL.md` | the settings, what to do when `start.sh` stops, the watch-loop protocol, and the five things that cost a day |
 | `skill/bin/lib.sh` | loads `maestro-drive` and checks its library version; this skill's settings, per-device paths, the sync |
 | `skill/bin/start.sh` | the guards, then push the branch, check it out, sync, launch, wait for the app |
-| `skill/bin/watch.sh` | one save → sync → reload → screenshot → exit (`--loop` to stay up); exits 2 when the run has gone, checked between saves too |
+| `skill/bin/watch.sh` | one save → sync → reload (restart for an asset) → screenshot → exit (`--loop` to stay up); a save made between two runs is handled by the next; exits 4 listing changes only a rebuild applies, 2 when the run has gone |
 | `skill/bin/reload.sh` | `r` / `restart` / `q` by hand; shows flutter's answer and any error the key threw |
 | `skill/bin/status.sh` | the Mac checkout's branch, and every run: device, checkout, last reloads |
 | `skill/bin/stop.sh` | stop this device's run, flutter included, and clear its files |
@@ -65,7 +65,8 @@ Sourced from `$FHRM_MAESTRO_DRIVE`, or `~/.claude/skills/maestro-drive`, never
 There is no config file of its own. The project's `.maestro-drive.conf` is read
 by `maestro-drive`'s loader, so it needs what `maestro-drive` needs over ssh —
 `MAC_HOST`, `MAC_FQDN`, `APP_ID`, `REPO` — and `PROFILE` and `TRANSPORT` are read
-here too. This skill adds `WATCH_DIR` (default `lib`). Flavour and entry file
+here too. This skill adds `WATCH_DIR` (default `lib`), `WATCH_ASSETS` (default `assets`)
+and `WATCH_REBUILD` (default `pubspec.yaml ios android`). Flavour and entry file
 are `maestro-drive`'s `BUILD_FLAVOR` and `BUILD_TARGET`; 1.0's `FLAVOR` and
 `TARGET` are read with a warning, and `FLUTTER_BIN` is ignored.
 

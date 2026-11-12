@@ -22,7 +22,9 @@ for a in "$@"; do
     *) echo "start: unknown argument $a" >&2; exit 1 ;;
   esac
 done
-: "${START_TRIES:=60}" "${START_POLL:=10}"
+: "${START_WAIT:=600}"   # seconds to wait for the app, all told
+: "${START_POLL:=2}"     # seconds between looks at the log, on the Mac
+: "${START_CHUNK:=120}"  # seconds one connection waits before the next
 
 [ "${RUNNER:-flutter}" = flutter ] || {
   echo "start: RUNNER=$RUNNER in the conf; this skill hot-reloads Flutter only" >&2; exit 1; }
@@ -131,8 +133,10 @@ if [ "$BRANCH_SYNC" = 1 ] && [ "$same_checkout" = 0 ]; then
   # would carry it onto another branch or stop halfway, and a fast-forward
   # would refuse or mix it in. WATCH_DIR is expected to differ — the last sync
   # put it there — and the two lock files are build output there.
+  # WATCH_ASSETS likewise: the watcher syncs them too.
+  excl=; for a in $WATCH_DIR $WATCH_ASSETS; do excl="$excl ':(exclude)$a'"; done
   dirty=$(_ssh "git -C '$REPO' status --porcelain --untracked-files=no -- . \
-    ':(exclude)$WATCH_DIR' ':(exclude)ios/Podfile.lock' ':(exclude)pubspec.lock'")
+    $excl ':(exclude)ios/Podfile.lock' ':(exclude)pubspec.lock'")
   if [ -n "$dirty" ]; then
     echo "start: $REPO on $(_where) is on $there with uncommitted changes:" >&2
     printf '%s\n' "$dirty" | sed 's/^/    /' >&2
@@ -153,7 +157,7 @@ if [ "$BRANCH_SYNC" = 1 ] && [ "$same_checkout" = 0 ]; then
   # fast-forward of what is there was rewritten here, or committed to there;
   # either way it is not this script's to overwrite.
   moved=$(_ssh "cd '$REPO' || exit 1
-for f in '$WATCH_DIR' ios/Podfile.lock pubspec.lock; do git checkout -q -- \"\$f\" 2>/dev/null; done   # one by one: a path that is not there would stop all three
+for f in $WATCH_DIR $WATCH_ASSETS ios/Podfile.lock pubspec.lock; do git checkout -q -- \"\$f\" 2>/dev/null; done   # one by one: a path that is not there would stop all three
 if git rev-parse -q --verify 'refs/heads/$branch' >/dev/null; then
   git merge-base --is-ancestor 'refs/heads/$branch' 'refs/remotes/fhrm/$branch' || { echo NOT-FF; exit 0; }
   [ '$there' = '$branch' ] || git checkout -q '$branch' || { echo CHECKOUT-FAILED; exit 0; }
@@ -176,7 +180,13 @@ fi
 if [ "$same_checkout" = 0 ]; then
   echo "syncing $WATCH_DIR/"
   _sync || exit 1
+  for a in $WATCH_ASSETS; do
+    [ -d "$PROJECT_DIR/$a" ] || continue
+    echo "syncing $a/"; _sync "$a" || exit 1
+  done
 fi
+# The watcher's marker starts here: what was just synced is not a save to replay.
+touch "$(_mark "$dev")"
 _fs_shared || _push "$FHRM_SKILL/remote/frun.py" "$RPY" || exit 1
 
 # --- launch ---------------------------------------------------------------------
@@ -202,19 +212,30 @@ sleep 2; echo launched" || exit 1
 
 # A cold build of a branch not built there before takes minutes; an incremental
 # one about 40s. "key commands" is the line flutter prints once the app is up.
+# The looking happens on the Mac, every START_POLL seconds, so each connection
+# waits up to START_CHUNK seconds rather than answering one look (BACKLOG
+# item 9): a ten-minute build is five connections, not sixty, and the app being
+# up is seen within START_POLL of it.
+looks=$(awk -v c="$START_CHUNK" -v p="$START_POLL" 'BEGIN { n = int(c / p); print (n < 1 ? 1 : n) }')
+chunk_tmo=$(awk -v c="$START_CHUNK" -v p="$START_POLL" 'BEGIN { print int(c + p + 30) }')
 printf 'waiting for the app'
-state=wait
-for _ in $(seq 1 "$START_TRIES"); do
-  state=$(_ssh "if grep -q 'key commands' '$RLOG' 2>/dev/null; then echo up
-elif grep -qE 'Error launching|Could not build|flutter run exited' '$RLOG' 2>/dev/null; then echo failed
-else echo wait; fi")
+state=wait; t0=$SECONDS
+while [ $((SECONDS - t0)) -lt "$START_WAIT" ]; do
+  state=$(TMO=$chunk_tmo _ssh "i=0
+while :; do
+  if grep -q 'key commands' '$RLOG' 2>/dev/null; then echo up; break
+  elif grep -qE 'Error launching|Could not build|flutter run exited' '$RLOG' 2>/dev/null; then echo failed; break; fi
+  i=\$((i+1)); [ \$i -ge $looks ] && { echo wait; break; }
+  sleep $START_POLL
+done")
+  # No answer at all is a dropped connection, not a verdict on the build.
+  [ -n "$state" ] || { state=wait; sleep "$START_POLL"; }
   [ "$state" = wait ] || break
-  printf '.'
-  sleep "$START_POLL"
+  printf ' %ds' $((SECONDS - t0))
 done
 echo
 case $state in
-  up) echo "up. log: $(_where):$RLOG" ;;
+  up) echo "up after $((SECONDS - t0))s. log: $(_where):$RLOG" ;;
   failed) echo "failed. Last of $RLOG:"; _ssh "tail -25 '$RLOG'; tail -5 '$RERR'"; exit 1 ;;
-  *) echo "gave up waiting. Last of $RLOG:"; _ssh "tail -25 '$RLOG'"; exit 1 ;;
+  *) echo "gave up waiting after $((SECONDS - t0))s. Last of $RLOG:"; _ssh "tail -25 '$RLOG'"; exit 1 ;;
 esac

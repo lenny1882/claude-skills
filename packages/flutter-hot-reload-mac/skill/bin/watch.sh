@@ -7,8 +7,24 @@
 # The one-shot default exists because of how the harness works, not because
 # it is a nicer design: a background Bash task only notifies Claude when it
 # EXITS. Exiting after each save is what lets Claude post the screenshot in the
-# conversation. Claude relaunches it straight away; saves inside that gap are
-# missed, so save again if nothing comes back.
+# conversation. Claude relaunches it straight away, and a save made in between
+# is not lost: the marker the next run compares against is the one this run
+# took just before it last looked, so that save is newer than it and the next
+# run handles it at once (BACKLOG item 6). start.sh resets the marker after its
+# own sync.
+#
+# What a save does depends on where it is (BACKLOG item 7):
+#   WATCH_DIR (lib)            synced, then hot reload (r)
+#   WATCH_ASSETS (assets)      synced, then hot restart (R): a reload leaves the
+#                              old image in Flutter's image cache
+#   WATCH_REBUILD (pubspec.yaml ios android)
+#                              not synced: no reload applies it. Listed as
+#                              REBUILD: lines, then exit 4 in the one-shot mode.
+#                              It reaches the Mac when committed, through
+#                              bin/start.sh --build.
+# Each is a space-separated list of paths relative to the project; a path that
+# is not there is skipped. Files only: a deletion is synced with the next save
+# in that directory, not on its own.
 #
 # Exits 2, saying so, when the run has gone — flutter run died or was
 # stopped — rather than syncing into a dead app. It checks before each reload,
@@ -30,7 +46,8 @@ LOOP=0
 _pick_host || exit 1
 dev=$(_dev) || exit 1
 _paths "$dev"
-MARK="$FLDIR/watch-mark-$dev"
+MARK=$(_mark "$dev")
+NEXT="$MARK.next"
 
 [ -n "$(_alive "$dev")" ] || { echo "no run on $dev — bin/start.sh first" >&2; exit 2; }
 
@@ -41,27 +58,61 @@ gone() {  # gone <last of the log>
   exit 2
 }
 
-touch "$MARK"
+# Kept from the last run, so a save made since it exited is still newer.
+[ -e "$MARK" ] || touch "$MARK"
 checked=$SECONDS
 echo "$(date +%H:%M:%S) watching $PROJECT_DIR/$WATCH_DIR -> $(_where) $dev"
 
+# changed <paths...> — files under them newer than the marker. Editor
+# droppings and the build output under ios/ and android/ are not saves.
+changed() {
+  local p have=()
+  for p in "$@"; do [ -e "$PROJECT_DIR/$p" ] && have+=("$p"); done
+  [ ${#have[@]} -gt 0 ] || return 0
+  (cd "$PROJECT_DIR" && find "${have[@]}" \
+     \( -name Pods -o -name .symlinks -o -name ephemeral -o -name build -o -name .gradle \
+        -o -name .dart_tool -o -name .cxx \) -prune \
+     -o -type f -newer "$MARK" ! -name '.*' ! -name '*~' ! -name '*.swp' ! -name '*.tmp' \
+        ! -name 'Generated*' ! -name 'GeneratedPluginRegistrant.*' \
+        ! -name flutter_export_environment.sh ! -name local.properties -print 2>/dev/null)
+}
+list() { printf '%s\n' "$1" | head -20 | tr '\n' ' '; }
+
 while true; do
-  changed=$(cd "$PROJECT_DIR" && find "$WATCH_DIR" -name '*.dart' -newer "$MARK" 2>/dev/null | head -20)
-  if [ -n "$changed" ]; then
-    touch "$MARK"
+  if [ -n "$(changed $WATCH_DIR $WATCH_ASSETS $WATCH_REBUILD | head -1)" ]; then
     sleep 0.4                       # let the editor finish writing
-    _sync >/dev/null 2>&1
-    echo "$(date +%H:%M:%S) saved: $(echo "$changed" | tr '\n' ' ')"
-    # One round trip: the run is still there, the reload, the frame, the result
-    # and any error the reload threw (see _key_script in lib.sh).
-    out=$(_ssh "[ -r '$RPID' ] && read p fl r < '$RPID' && kill -0 \"\$p\" 2>/dev/null || { echo RUN-GONE; tail -5 '$RLOG' 2>/dev/null | $CLEAN; exit 0; }
-$(_key_script r "sh '$PLATFORM_SH' screenshot '$dev' '$RSHOT'")")
-    printf '%s\n' "$out" | grep -qx RUN-GONE && gone "$(printf '%s\n' "$out" | grep -vx RUN-GONE)"
-    checked=$SECONDS
-    shot="$FLDIR/shots/$(date +%H%M%S).png"
-    _pull "$RSHOT" "$shot" || echo "screenshot could not be fetched"
-    printf '%s\n' "$out"
-    echo "SHOT: $shot"
+    # The new marker is taken before the final look, so a save after it is
+    # newer than it and the next look (or the next run) handles it.
+    touch "$NEXT"
+    code=$(changed $WATCH_DIR)
+    assets=$(changed $WATCH_ASSETS)
+    rebuild=$(changed $WATCH_REBUILD)
+    mv -f "$NEXT" "$MARK"
+    [ -n "$code$assets" ] && echo "$(date +%H:%M:%S) saved: $(list "$code$assets")"
+    if [ -n "$code$assets" ]; then
+      _sync >/dev/null 2>&1
+      for a in $WATCH_ASSETS; do
+        [ -n "$assets" ] && [ -d "$PROJECT_DIR/$a" ] && _sync "$a" >/dev/null 2>&1
+      done
+      key=r; [ -n "$assets" ] && key=R
+      # One round trip: the run is still there, the key, the frame, the result
+      # and any error the key threw (see _key_script in lib.sh).
+      out=$(_ssh "[ -r '$RPID' ] && read p fl r < '$RPID' && kill -0 \"\$p\" 2>/dev/null || { echo RUN-GONE; tail -5 '$RLOG' 2>/dev/null | $CLEAN; exit 0; }
+$(_key_script $key "sh '$PLATFORM_SH' screenshot '$dev' '$RSHOT'")")
+      printf '%s\n' "$out" | grep -qx RUN-GONE && gone "$(printf '%s\n' "$out" | grep -vx RUN-GONE)"
+      checked=$SECONDS
+      shot="$FLDIR/shots/$(date +%H%M%S).png"
+      _pull "$RSHOT" "$shot" || echo "screenshot could not be fetched"
+      [ "$key" = R ] && echo "hot restart, for the assets: the app's state was reset"
+      printf '%s\n' "$out"
+      echo "SHOT: $shot"
+    fi
+    if [ -n "$rebuild" ]; then
+      echo "$(date +%H:%M:%S) changed, and no reload applies it:"
+      printf '%s\n' "$rebuild" | head -20 | sed 's/^/REBUILD: /'
+      echo "Not synced. Commit it, then bin/start.sh --build rebuilds with it."
+      [ "$LOOP" = 1 ] || exit 4
+    fi
     [ "$LOOP" = 1 ] || exit 0
   elif [ "$WATCH_ALIVE" -gt 0 ] && [ $((SECONDS - checked)) -ge "$WATCH_ALIVE" ]; then
     # Between saves (BACKLOG item 10). Only an explicit GONE counts: a failed

@@ -28,13 +28,16 @@ This skill's own settings, in the same conf or exported for one call:
 
 | variable | default | |
 |---|---|---|
-| `WATCH_DIR` | `lib` | synced and watched, relative to both checkouts |
+| `WATCH_DIR` | `lib` | synced and watched, relative to both checkouts; a save there is hot reloaded |
+| `WATCH_ASSETS` | `assets` | also synced and watched; a save there is hot restarted, since a reload keeps the old image cached. Space-separated, empty for none |
+| `WATCH_REBUILD` | `pubspec.yaml ios android` | watched, never synced: no reload applies a change there (see the watch loop) |
 | `BUILD_FLAVOR` | worked out | `maestro-drive`'s own override, read by both skills |
 | `BUILD_TARGET` | worked out | the same |
 | `WATCH_ALIVE` | `30` | seconds between the watcher's checks that the run is alive; `0` for none |
 | `RELOAD_TMO` | `60` | seconds to wait for flutter's answer to a key |
 | `RELOAD_SETTLE` | `1` | seconds to wait after the answer, for what the first frame throws |
 | `RELOAD_ERR_LINES` | `40` | lines of an error to show; the rest stay in the log |
+| `START_WAIT` | `600` | seconds `start.sh` waits for the app to come up |
 
 1.0's `FLAVOR` and `TARGET` are still read, with a warning to rename them;
 `FLUTTER_BIN` is ignored.
@@ -54,9 +57,9 @@ device has its own run, fifo and log (`$RDIR/frun-<udid>.*`), so two simulators
 can each have one. A screenshot by hand is `maestro-drive`'s
 `bin/driver.sh shot` or `bin/shot.sh`.
 
-Call them with `bash`: the sandbox mounts `~/.claude/skills` read-only, so the
-scripts were written without an execute bit and `chmod` cannot add one from
-here. `remote/frun.py` does not need one — it is run as `python3 frun.py`.
+Call them with `bash`, as above. Since 2.1 the scripts carry an execute bit, but
+`bash <script>` works whether or not the installed copy has one.
+`remote/frun.py` is run as `python3 frun.py`.
 
 ### When start.sh stops
 
@@ -70,8 +73,8 @@ here. `remote/frun.py` does not need one — it is run as `python3 frun.py`.
   unless they have checked with that session. A second branch at the same time
   needs a second checkout: `REPO` in a `.maestro-drive.conf.<name>` profile,
   run with `PROFILE=<name>`.
-- **Uncommitted changes in the Mac's checkout** outside `WATCH_DIR` and the two
-  lock files, when the branch would change: they are someone's work. Report
+- **Uncommitted changes in the Mac's checkout** outside `WATCH_DIR`,
+  `WATCH_ASSETS` and the two lock files, when the branch would change: they are someone's work. Report
   them; `--no-branch` builds the branch that is there as it is.
 - **The flavour cannot be decided**: `maestro-drive`'s reason is printed. Ask
   which flavour, and set `BUILD_FLAVOR`.
@@ -103,14 +106,21 @@ thing that lets Claude put the screenshot in front of the user. So the cycle is:
 3. `SendUserFile` that path, captioned with the reload time.
 4. Relaunch `bin/watch.sh` in the background immediately.
 
+If it exits 4, a file under `WATCH_REBUILD` changed — `pubspec.yaml`, or native
+code under `ios/` or `android/`. The output lists each as `REBUILD: <path>`,
+after the reload and screenshot if code changed in the same save. It was not
+synced. Tell the user the change needs a rebuild: once it is committed,
+`start.sh --build` builds with it. Do not run that unasked; relaunch the
+watcher as usual.
+
 If it exits 2, the run has gone — `flutter run` died or was stopped — and the
 output ends with the last of its log. The watcher checks every `WATCH_ALIVE`
 seconds between saves as well as before each reload, so this can arrive with
 no save behind it. Say so, and do not relaunch the watcher
 until `start.sh` has brought the run back.
 
-Tell the user once that a save landing between steps 3 and 4 is missed and they
-should save again. `--loop` never exits and never surfaces anything — only
+A save made between steps 3 and 4 is not missed: the next run handles it as
+soon as it starts. `--loop` never exits and never surfaces anything — only
 useful when nobody is watching the conversation.
 
 ## What cost time the first day, so it does not cost it again

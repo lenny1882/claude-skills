@@ -55,7 +55,7 @@ save() {
 }
 
 echo "start"
-out=$(START_TRIES=90 bash "$S/start.sh" --build 2>&1); rc=$?
+out=$(START_WAIT=900 bash "$S/start.sh" --build 2>&1); rc=$?
 echo "$out" | sed 's/^/    /'
 [ $rc = 0 ] && ok "the app came up" || { no "start" "rc=$rc"; exit 1; }
 

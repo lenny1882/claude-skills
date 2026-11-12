@@ -94,6 +94,7 @@ cat > "$FAKE_FLUTTER" <<'SH'
 #!/bin/bash
 echo "ARGS: $*"
 echo "GEM_HOME=${GEM_HOME:-unset}"
+[ -n "${FAKE_SLOW:-}" ] && sleep "$FAKE_SLOW"   # a build that takes a while
 echo "Flutter run key commands."
 while IFS= read -r -n1 c; do
   case $c in
@@ -132,7 +133,7 @@ export FHRM_MAESTRO_DRIVE="$MD"
 unset FHRM_MAESTRO_DRIVE
 
 BIN="$REPO/skill/bin"
-export START_POLL=0.3 START_TRIES=40 WATCH_POLL=0.2
+export START_POLL=0.3 START_WAIT=12 START_CHUNK=3 WATCH_POLL=0.2
 unset MAESTRO_DRIVE_CONF DEV MAC_HOST FLAVOR TARGET FLUTTER_BIN WATCH_DIR LDIR BUILD_FLAVOR BUILD_TARGET
 
 # q <dir> <snippet> — source lib.sh from <dir>, then run <snippet>.
@@ -202,8 +203,10 @@ grep -q "GEM_HOME=$TMP/gems" "$F/log" && ok "a GEM_HOME from describe is set" ||
 # --- end to end, in local transport -----------------------------------------------
 # P is the project being edited; B is the checkout the build reads, a clone of P.
 P="$TMP/proj"; B="$TMP/build"; B2="$TMP/build2"
-git init -q "$P"; mkdir -p "$P/lib"
+git init -q "$P"; mkdir -p "$P/lib" "$P/assets" "$P/ios/Runner" "$P/ios/Pods"
 echo "void main() {}" > "$P/lib/main.dart"; echo readme > "$P/README"
+echo png1 > "$P/assets/logo.png"; echo "name: app" > "$P/pubspec.yaml"
+echo plist > "$P/ios/Runner/Info.plist"; echo pod > "$P/ios/Pods/x"
 git -C "$P" add -A; git -C "$P" -c user.name=t -c user.email=t@t commit -qm one
 git -C "$P" branch -M main
 for c in "$B" "$B2"; do
@@ -248,6 +251,15 @@ echo "start.sh — a run"
 echo "// edited" >> "$P/lib/main.dart"
 st start --build; rc=$?
 [ $rc = 0 ] && grep -q "^up" "$TMP/out" && ok "starts and waits for the app" || no "starts and waits for the app" "rc=$rc $(cat "$TMP/out")"
+: > "$SSH_LOG"; FAKE_SLOW=4 st start --build; rc=$?
+n=$(grep -c "key commands" "$SSH_LOG")
+[ $rc = 0 ] && [ "$n" -le 2 ] && grep -q "^up after" "$TMP/out" \
+  && ok "a 4s build is waited for in $n connections, not one per look" \
+  || no "a slow build is waited for in few connections" "rc=$rc n=$n $(cat "$TMP/out")"
+FAKE_SLOW=30 START_WAIT=4 st start --build; rc=$?
+[ $rc = 1 ] && grep -q "gave up waiting after [4-9]s" "$TMP/out" \
+  && ok "and gives up after START_WAIT" || no "and gives up after START_WAIT" "rc=$rc $(cat "$TMP/out")"
+st start --build
 is "the build checkout is on the project's branch" "feature" "$(git -C "$B" rev-parse --abbrev-ref HEAD)"
 grep -q "// edited" "$B/lib/main.dart" && ok "WATCH_DIR is synced, uncommitted edits included" || no "WATCH_DIR is synced" "$(cat "$B/lib/main.dart")"
 grep -q -- "ARGS: run --flavor dev -d SIM-A -t lib/main_dev.dart" "$FAKE_RDIR/frun-SIM-A.log" \
@@ -305,6 +317,34 @@ grep -q "rc=0" "$TMP/watch.out" && grep -q "Reloaded" "$TMP/watch.out" && grep -
 shot=$(sed -n 's/^SHOT: //p' "$TMP/watch.out")
 [ -n "$shot" ] && [ "$(cat "$shot" 2>/dev/null)" = PNG ] && ok "and the screenshot is fetched" || no "and the screenshot is fetched" "shot=$shot"
 
+# watch1 [env...] — one watcher run in the background; wait for it with wait1.
+watch1(){ ( cd "$P" && env "$@" timeout 30 bash "$BIN/watch.sh" > "$TMP/watch.out" 2>&1; echo "rc=$?" >> "$TMP/watch.out" ) & wpid=$!; }
+wait1(){ wait "$wpid"; }
+sleep 1.1; echo "// in the gap" >> "$P/lib/main.dart"    # saved with no watcher running
+s0=$SECONDS; watch1 WATCH_ALIVE=0; wait1
+grep -q "rc=0" "$TMP/watch.out" && grep -q "saved: lib/main.dart" "$TMP/watch.out" && grep -q "// in the gap" "$B/lib/main.dart" \
+  && [ $((SECONDS - s0)) -lt 5 ] \
+  && ok "a save made between two watcher runs is handled by the next one at once" \
+  || no "a save made between two watcher runs is handled by the next one" "$(cat "$TMP/watch.out")"
+( cd "$P" && WATCH_ALIVE=0 timeout 3 bash "$BIN/watch.sh" ) > "$TMP/out" 2>&1; rc=$?
+[ $rc = 124 ] && ! grep -q saved "$TMP/out" && ok "and is not replayed by the run after that" || no "and is not replayed by the run after that" "rc=$rc $(cat "$TMP/out")"
+
+watch1 WATCH_ALIVE=0; sleep 1; echo png2 > "$P/assets/logo.png"; wait1
+grep -q "rc=0" "$TMP/watch.out" && grep -q "Restarted application" "$TMP/watch.out" && grep -q "state was reset" "$TMP/watch.out" \
+  && [ "$(cat "$B/assets/logo.png")" = png2 ] \
+  && ok "an asset is synced and hot restarted, saying the state went" || no "an asset is synced and hot restarted" "$(cat "$TMP/watch.out")"
+watch1 WATCH_ALIVE=0; sleep 1; echo "version: 2" >> "$P/pubspec.yaml"; wait1
+grep -q "rc=4" "$TMP/watch.out" && grep -qx "REBUILD: pubspec.yaml" "$TMP/watch.out" && grep -q "start.sh --build" "$TMP/watch.out" \
+  && ! grep -q "version: 2" "$B/pubspec.yaml" && ! grep -q SHOT "$TMP/watch.out" \
+  && ok "pubspec.yaml is not synced or reloaded: REBUILD, exit 4" || no "pubspec.yaml: REBUILD, exit 4" "$(cat "$TMP/watch.out")"
+watch1 WATCH_ALIVE=0; sleep 1; echo "// both" >> "$P/lib/main.dart"; echo x >> "$P/ios/Runner/Info.plist"; wait1
+grep -q "rc=4" "$TMP/watch.out" && grep -q "Reloaded" "$TMP/watch.out" && grep -qx "REBUILD: ios/Runner/Info.plist" "$TMP/watch.out" \
+  && ok "code and native code saved together: reloaded, and the native file listed" || no "code and native code together" "$(cat "$TMP/watch.out")"
+echo y >> "$P/ios/Pods/x"; mkdir -p "$P/lib/.hidden"; echo z > "$P/lib/main.dart~"
+( cd "$P" && WATCH_ALIVE=0 timeout 3 bash "$BIN/watch.sh" ) > "$TMP/out" 2>&1; rc=$?
+[ $rc = 124 ] && ! grep -qE "saved|REBUILD" "$TMP/out" && ok "ios/Pods and editor backups are not saves" || no "ios/Pods and editor backups are not saves" "rc=$rc $(cat "$TMP/out")"
+rm -f "$P/lib/main.dart~"; rmdir "$P/lib/.hidden"
+
 read -r _ wf _ < "$FAKE_RDIR/frun-SIM-A.pid"
 ( cd "$P" && WATCH_ALIVE=1 timeout 30 bash "$BIN/watch.sh" > "$TMP/watch.out" 2>&1; echo "rc=$?" >> "$TMP/watch.out" ) &
 wpid=$!
@@ -341,7 +381,7 @@ DEV=SIM-B st stop
 echo "the branch on a shared checkout"
 git -C "$P" switch -q main
 git -C "$B" switch -q main 2>/dev/null || git -C "$B" checkout -q -f main
-echo "theirs" >> "$B/README"; echo "// synced before" >> "$B/lib/main.dart"
+echo "theirs" >> "$B/README"; echo "// synced before" >> "$B/lib/main.dart"; echo synced > "$B/assets/logo.png"
 git -C "$P" switch -q feature
 st start --build; rc=$?
 [ $rc = 1 ] && grep -q "uncommitted changes" "$TMP/out" && grep -q "README" "$TMP/out" && ! grep -q "lib/main.dart" "$TMP/out" \
@@ -351,7 +391,8 @@ grep -q theirs "$B/README" && ok "with the work intact" || no "with the work int
 git -C "$B" checkout -q -- README
 st start --build; rc=$?
 [ $rc = 0 ] && [ "$(git -C "$B" rev-parse --abbrev-ref HEAD)" = feature ] \
-  && ok "changes only inside WATCH_DIR do not stop it" || no "changes only inside WATCH_DIR do not stop it" "rc=$rc $(cat "$TMP/out")"
+  && [ "$(cat "$B/assets/logo.png")" = "$(cat "$P/assets/logo.png")" ] \
+  && ok "changes only inside WATCH_DIR and WATCH_ASSETS do not stop it, and both are synced" || no "changes only inside WATCH_DIR do not stop it" "rc=$rc $(cat "$TMP/out")"
 echo "readme 2" > "$P/README"; git -C "$P" -c user.name=t -c user.email=t@t commit -qam two
 st start --build; rc=$?
 [ $rc = 0 ] && [ "$(git -C "$B" rev-parse HEAD)" = "$(git -C "$P" rev-parse HEAD)" ] && [ "$(cat "$B/README")" = "readme 2" ] \
@@ -382,6 +423,10 @@ touch "$CLAUDE_DIR/skills/flutter-hot-reload-mac/stale-hand-copy"
 [ ! -e "$CLAUDE_DIR/skills/flutter-hot-reload-mac/stale-hand-copy" ] \
   && [ -f "$CLAUDE_DIR/skills/flutter-hot-reload-mac/SKILL.md" ] \
   && ok "installing over a hand copy replaces it" || no "installing over a hand copy replaces it" "$(ls "$CLAUDE_DIR/skills/flutter-hot-reload-mac")"
+nx=; for f in start watch reload status stop; do [ -x "$CLAUDE_DIR/skills/flutter-hot-reload-mac/bin/$f.sh" ] || nx="$nx $f"; done
+[ -z "$nx" ] && ok "the installed scripts are executable" || no "the installed scripts are executable" "not:$nx"
+nx=; for f in start watch reload status stop; do git -C "$REPO" ls-files -s "skill/bin/$f.sh" | grep -q '^100755' || nx="$nx $f"; done
+[ -z "$nx" ] && ok "and carry the bit in git, so the release tarball has it" || no "and carry the bit in git" "not:$nx"
 "$REPO/install.sh" --link --yes >/dev/null 2>&1
 [ -L "$CLAUDE_DIR/skills/flutter-hot-reload-mac" ] && ok "--link symlinks the skill" || no "--link symlinks the skill" "not a symlink"
 "$REPO/uninstall.sh" --yes >/dev/null 2>&1

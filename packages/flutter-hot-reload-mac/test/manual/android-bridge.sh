@@ -102,7 +102,7 @@ _ssh "adb -s '$serial' uninstall '$APP_ID' 2>&1 | tr -d '\r'" | sed 's/^/    uni
 
 echo "start.sh (Gradle now warm)"
 t0=$(date +%s)
-out=$(START_TRIES=120 START_POLL=10 bash "$S/start.sh" 2>&1); rc=$?
+out=$(START_WAIT=1200 bash "$S/start.sh" 2>&1); rc=$?
 echo "$out" | sed 's/^/    /'
 [ $rc = 0 ] && ok "up in $(( $(date +%s) - t0 ))s, without --build (the app was not installed)" || no "start" "rc=$rc; last of the log:
 $(tail -30 "$RDIR/frun-$serial.log" 2>/dev/null)"

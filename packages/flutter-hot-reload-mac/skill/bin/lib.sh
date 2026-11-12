@@ -36,7 +36,7 @@ fi
 # environment set for this skill's settings, and put it back afterwards. An
 # exported empty value counts. Plain strings, so macOS's bash 3.2 can run it.
 _keep=""
-for _v in WATCH_DIR BUILD_FLAVOR BUILD_TARGET FLAVOR TARGET FLUTTER_BIN DEV; do
+for _v in WATCH_DIR WATCH_ASSETS WATCH_REBUILD BUILD_FLAVOR BUILD_TARGET FLAVOR TARGET FLUTTER_BIN DEV; do
   [ -n "${!_v+x}" ] && _keep+="$_v=$(printf '%q' "${!_v}");"
 done
 # shellcheck disable=SC1090
@@ -52,6 +52,11 @@ fi
 # --- this skill's settings ---------------------------------------------------
 # Synced and watched, relative to both checkouts.
 : "${WATCH_DIR:=lib}"
+# Also synced and watched, hot restarted rather than reloaded; space-separated.
+# Empty for none.
+: "${WATCH_ASSETS=assets}"
+# Watched, never synced: a change here needs a rebuild (watch.sh's REBUILD).
+: "${WATCH_REBUILD=pubspec.yaml ios android}"
 
 # 1.0's names for the flavour and entry file. maestro-drive's are BUILD_FLAVOR
 # and BUILD_TARGET, and two names for one setting in one conf is how the two
@@ -95,19 +100,24 @@ _paths() {  # _paths <udid>
   RSHOT="$RDIR/frun-$1.png"
 }
 
-# Copy WATCH_DIR from this checkout to the one the build reads. Across ssh,
-# rsync with maestro-drive's ssh options to the alias it picked. Where the
-# filesystem is shared, a local rsync — or nothing, when REPO is this checkout.
-_sync() {
-  local src="$PROJECT_DIR/$WATCH_DIR/"
+# Copy a directory (WATCH_DIR by default) from this checkout to the one the
+# build reads. Across ssh, rsync with maestro-drive's ssh options to the alias
+# it picked. Where the filesystem is shared, a local rsync — or nothing, when
+# REPO is this checkout.
+_sync() {  # _sync [dir]
+  local d=${1:-$WATCH_DIR}
+  local src="$PROJECT_DIR/$d/"
   if _fs_shared; then
     [ "$PROJECT_DIR" -ef "$REPO" ] && return 0
-    rsync -a --delete "$src" "$REPO/$WATCH_DIR/"
+    mkdir -p "$REPO/$d" && rsync -a --delete "$src" "$REPO/$d/"
   else
     _pick_host || return 1
-    rsync -az --delete -e "ssh ${SSH_OPTS[*]}" "$src" "$MAC_HOST:$REPO/$WATCH_DIR/"
+    rsync -az --delete -e "ssh ${SSH_OPTS[*]}" "$src" "$MAC_HOST:$REPO/$d/"
   fi
 }
+
+# watch.sh's marker for a device: saves newer than it have not been synced.
+_mark() { echo "$FLDIR/watch-mark-$1"; }
 
 # Is the run on this device alive? Prints its pid line when it is.
 _alive() {  # _alive <udid>

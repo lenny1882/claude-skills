@@ -29,13 +29,13 @@ _ssh "git clone -q --local '$REPO' '$C2' && cp -a '$REPO/.fvm' '$C2/' && git -C 
 
 echo "start A ($A, $REPO)"
 t0=$(date +%s)
-DEV=$A START_TRIES=90 bash "$S/start.sh" --build > "$TMPDIR/fhrm-two-A.out" 2>&1; rc=$?
+DEV=$A START_WAIT=900 bash "$S/start.sh" --build > "$TMPDIR/fhrm-two-A.out" 2>&1; rc=$?
 sed 's/^/    /' "$TMPDIR/fhrm-two-A.out"
 [ $rc = 0 ] && ok "A up in $(( $(date +%s) - t0 ))s" || no "A up" "rc=$rc"
 
 echo "start B ($B, $C2) — cold build"
 t0=$(date +%s)
-DEV=$B REPO=$C2 START_TRIES=150 bash "$S/start.sh" --build > "$TMPDIR/fhrm-two-B.out" 2>&1; rc=$?
+DEV=$B REPO=$C2 START_WAIT=1500 bash "$S/start.sh" --build > "$TMPDIR/fhrm-two-B.out" 2>&1; rc=$?
 sed 's/^/    /' "$TMPDIR/fhrm-two-B.out"
 [ $rc = 0 ] && ok "B up in $(( $(date +%s) - t0 ))s" || no "B up" "rc=$rc"
 

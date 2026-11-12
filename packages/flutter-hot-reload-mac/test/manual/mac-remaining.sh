@@ -47,7 +47,7 @@ trap restore EXIT
 echo "1. a real fast-forward"
 git -c user.name=fhrm-test -c user.email=t@example.invalid commit -q --allow-empty -m 'fhrm fast-forward test'
 new=$(git rev-parse HEAD)
-out=$(START_TRIES=90 bash "$S/start.sh" --build 2>&1); rc=$?
+out=$(START_WAIT=900 bash "$S/start.sh" --build 2>&1); rc=$?
 echo "$out" | sed 's/^/    /'
 there=$(_ssh "git -C '$REPO' rev-parse HEAD")
 [ $rc = 0 ] && [ "$there" = "$new" ] && ok "the Mac's branch moved forward to the new commit, and the app came up" \
