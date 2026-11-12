@@ -337,6 +337,10 @@ watch1 WATCH_ALIVE=0; sleep 1; echo "version: 2" >> "$P/pubspec.yaml"; wait1
 grep -q "rc=4" "$TMP/watch.out" && grep -qx "REBUILD: pubspec.yaml" "$TMP/watch.out" && grep -q "start.sh --build" "$TMP/watch.out" \
   && ! grep -q "version: 2" "$B/pubspec.yaml" && ! grep -q SHOT "$TMP/watch.out" \
   && ok "pubspec.yaml is not synced or reloaded: REBUILD, exit 4" || no "pubspec.yaml: REBUILD, exit 4" "$(cat "$TMP/watch.out")"
+git -C "$P" checkout -q -- pubspec.yaml
+( cd "$P" && WATCH_ALIVE=0 timeout 3 bash "$BIN/watch.sh" ) > "$TMP/out" 2>&1; rc=$?
+[ $rc = 124 ] && ! grep -q REBUILD "$TMP/out" \
+  && ok "pubspec.yaml put back to HEAD with git checkout is not a REBUILD" || no "pubspec.yaml back to HEAD is not a REBUILD" "rc=$rc $(cat "$TMP/out")"
 watch1 WATCH_ALIVE=0; sleep 1; echo "// both" >> "$P/lib/main.dart"; echo x >> "$P/ios/Runner/Info.plist"; wait1
 grep -q "rc=4" "$TMP/watch.out" && grep -q "Reloaded" "$TMP/watch.out" && grep -qx "REBUILD: ios/Runner/Info.plist" "$TMP/watch.out" \
   && ok "code and native code saved together: reloaded, and the native file listed" || no "code and native code together" "$(cat "$TMP/watch.out")"

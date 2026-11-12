@@ -6,6 +6,10 @@
 #   4. PROFILE layering reaching this skill's settings
 #   5. reload and hot restart through reload.sh, each showing only its own answer
 #      (12 Nov: a fixed 4s sleep showed the previous reload's line for a 4.5s restart)
+#   6. f7f092d (BACKLOG items 6, 7, 9): start.sh's on-the-Mac wait says "up after";
+#      a save made between two watcher runs is handled by the next at once; an
+#      asset save is rsynced to the Mac and hot restarted; a pubspec.yaml save
+#      is not synced and exits 4
 # Works from a clone of the project in $TMPDIR (SC), so the project's own
 # checkout is only read. The Mac's branch is put back to where it was.
 # Logs to $TMPDIR/fhrm-mac-remaining.log.
@@ -35,6 +39,7 @@ echo "$(date '+%F %T') on $(_where), $dev, $REPO on $branch at ${before:0:8}"
 restore() {
   echo "restore"
   bash "$S/stop.sh" 2>&1 | sed 's/^/    /'
+  _ssh "rm -f '$REPO/assets/fhrm-probe.txt'"
   _ssh "cd '$REPO' && h=\$(git rev-parse HEAD)
 if [ \"\$h\" != '$before' ] && [ \"\$(git log -1 --format=%s)\" = 'fhrm fast-forward test' ]; then git reset -q --soft '$before'; fi
 git update-ref -d 'refs/remotes/fhrm/$branch'
@@ -52,6 +57,7 @@ echo "$out" | sed 's/^/    /'
 there=$(_ssh "git -C '$REPO' rev-parse HEAD")
 [ $rc = 0 ] && [ "$there" = "$new" ] && ok "the Mac's branch moved forward to the new commit, and the app came up" \
   || no "the Mac's branch moved forward" "rc=$rc there=$there new=$new"
+grep -q '^up after [0-9]*s' <<<"$out" && ok "start.sh's wait on the Mac: $(grep -o 'up after [0-9]*s' <<<"$out")" || no "start.sh says up after" "$out"
 
 echo "5. reload, then hot restart"
 out=$(bash "$S/reload.sh" 2>&1); echo "$out" | sed 's/^/    /'
@@ -67,6 +73,31 @@ wait "$w"
 sed 's/^/    /' "$TMPDIR/fhrm-rem-watch.out"
 grep -q '^exit=0' "$TMPDIR/fhrm-rem-watch.out" && grep -q 'Reloaded 1 of' "$TMPDIR/fhrm-rem-watch.out" && grep -q '^SHOT: ' "$TMPDIR/fhrm-rem-watch.out" \
   && ok "synced, reloaded, screenshot, exit 0" || no "one save through watch.sh" "see above"
+
+# w1 <name> — one watcher run in the background, output in $TMPDIR/fhrm-rem-<name>.out
+w1(){ WO=$TMPDIR/fhrm-rem-$1.out; ( timeout 180 bash "$S/watch.sh" > "$WO" 2>&1; echo "exit=$?" >> "$WO" ) & w=$!; }
+show(){ sed 's/^/    /' "$WO"; }
+
+echo "6a. a save between two watcher runs"
+touch lib/main_dev.dart                     # no watcher running now
+s0=$SECONDS; w1 gap; wait "$w"; show
+grep -q '^exit=0' "$WO" && grep -q 'saved: lib/main_dev.dart' "$WO" && grep -q 'Reloaded 1 of' "$WO" && [ $((SECONDS - s0)) -lt 30 ] \
+  && ok "handled by the next run at once ($((SECONDS - s0))s)" || no "a save between two watcher runs" "see above"
+
+echo "6b. an asset save"
+w1 asset; sleep 4; echo "fhrm probe $(date +%s)" > assets/fhrm-probe.txt; wait "$w"; show
+mac=$(_ssh "cat '$REPO/assets/fhrm-probe.txt' 2>/dev/null")
+grep -q '^exit=0' "$WO" && grep -q 'Restarted application' "$WO" && grep -q 'state was reset' "$WO" && grep -q '^SHOT: ' "$WO" \
+  && [ "$mac" = "$(cat assets/fhrm-probe.txt)" ] \
+  && ok "rsynced to the Mac and hot restarted" || no "an asset save" "on the Mac: '$mac'"
+
+echo "6c. a pubspec.yaml save"
+sum0=$(_ssh "md5 -q '$REPO/pubspec.yaml'")
+w1 pubspec; sleep 4; echo "# fhrm probe" >> pubspec.yaml; wait "$w"; show
+sum1=$(_ssh "md5 -q '$REPO/pubspec.yaml'")
+grep -q '^exit=4' "$WO" && grep -qx 'REBUILD: pubspec.yaml' "$WO" && ! grep -q '^SHOT: ' "$WO" && [ "$sum0" = "$sum1" ] \
+  && ok "exit 4, REBUILD: pubspec.yaml, the Mac's copy untouched" || no "a pubspec.yaml save" "md5 $sum0 -> $sum1"
+git checkout -q -- pubspec.yaml
 
 echo "3. the run dies under the watcher"
 ( timeout 120 bash "$S/watch.sh" > "$TMPDIR/fhrm-rem-gone.out" 2>&1; echo "exit=$?" >> "$TMPDIR/fhrm-rem-gone.out" ) &

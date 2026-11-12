@@ -45,11 +45,14 @@ git status --porcelain --untracked-files=no | sed 's/^/    /'"
 trap restore EXIT
 
 # save <name> — one save of lib/app.dart through watch.sh; output in $W, seconds in $secs.
+# The edit is made before this is called. Since BACKLOG item 6 the watcher's
+# marker outlives a run, so the edit is newer than it and the run handles it as
+# soon as it starts; a touch here as well would be left over for the next run.
 save() {
   W=$TMPDIR/fhrm-err-$1.out
+  local t0; t0=$(date +%s)
   ( timeout 180 bash "$S/watch.sh" > "$W" 2>&1; echo "exit=$?" >> "$W" ) &
-  local w=$! t0
-  sleep 4; t0=$(date +%s); touch lib/app.dart
+  local w=$!
   wait "$w"; secs=$(( $(date +%s) - t0 ))
   sed 's/^/    /' "$W"
 }

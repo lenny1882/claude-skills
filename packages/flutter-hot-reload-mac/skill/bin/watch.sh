@@ -76,6 +76,18 @@ changed() {
         ! -name 'Generated*' ! -name 'GeneratedPluginRegistrant.*' \
         ! -name flutter_export_environment.sh ! -name local.properties -print 2>/dev/null)
 }
+# Drops the files that are tracked and identical to HEAD: `git checkout -- pubspec.yaml`
+# gives the file a new time but nothing a rebuild would pick up. Outside a git
+# checkout every file stays.
+unchanged_from_head() {
+  local f
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    git -C "$PROJECT_DIR" ls-files --error-unmatch -- "$f" >/dev/null 2>&1 \
+      && git -C "$PROJECT_DIR" diff --quiet HEAD -- "$f" 2>/dev/null && continue
+    printf '%s\n' "$f"
+  done
+}
 list() { printf '%s\n' "$1" | head -20 | tr '\n' ' '; }
 
 while true; do
@@ -86,8 +98,10 @@ while true; do
     touch "$NEXT"
     code=$(changed $WATCH_DIR)
     assets=$(changed $WATCH_ASSETS)
-    rebuild=$(changed $WATCH_REBUILD)
+    rebuild=$(changed $WATCH_REBUILD | unchanged_from_head)
     mv -f "$NEXT" "$MARK"
+    # Only files put back to HEAD: nothing to do, keep watching.
+    [ -n "$code$assets$rebuild" ] || { sleep "$WATCH_POLL"; continue; }
     [ -n "$code$assets" ] && echo "$(date +%H:%M:%S) saved: $(list "$code$assets")"
     if [ -n "$code$assets" ]; then
       _sync >/dev/null 2>&1

@@ -6,6 +6,11 @@
 # through the watcher, status, stop. Shuts the emulator down and deletes the app
 # after. Logs to $TMPDIR/fhrm-android-$TRANSPORT.log.
 #
+# Since f7f092d (BACKLOG items 6, 7, 9) also: start.sh's on-the-machine wait
+# says "up after"; a save between two watcher runs; an asset the home page
+# shows, replaced, hot restarted, the screenshot changing; a pubspec.yaml save
+# exiting 4. The screenshots before and after the asset go to $SCR.
+#
 # Before start.sh it runs one `flutter build apk --debug -v` by itself, so a
 # stalled first Gradle build says what it waits on (BACKLOG item 20). Its output
 # goes to $SCR/fhrm-android-gradle.log. GRADLE_ONLY=1 stops after that build.
@@ -43,6 +48,14 @@ cat > "$P/.maestro-drive.conf" <<EOF
 EOF
 cd "$P" || exit 1
 . "$S/lib.sh" || exit 1
+# png <file> <r> <g> <b> — a 64x64 PNG of one colour, for the asset check.
+png(){ python3 -I -c '
+import sys, zlib, struct
+f, r, g, b = sys.argv[1], *map(int, sys.argv[2:])
+row = b"\0" + bytes([r, g, b]) * 64
+def chunk(t, d): return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d))
+open(f, "wb").write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 64, 64, 8, 2, 0, 0, 0))
+  + chunk(b"IDAT", zlib.compress(row * 64)) + chunk(b"IEND", b""))' "$@"; }
 echo "$(date '+%F %T') TRANSPORT=$TRANSPORT PLATFORM=$PLATFORM REPO=$REPO RDIR=$RDIR"
 serial=
 
@@ -66,6 +79,13 @@ trap cleanup EXIT
 echo "flutter create"
 _ssh "flutter create --org com.example --project-name fhrm_probe --platforms android '$P' 2>&1 | tail -3; flutter --version 2>/dev/null | head -1" | sed 's/^/    /'
 [ -f "$P/lib/main.dart" ] && ok "app created" || { no "app created" "no lib/main.dart"; exit 1; }
+# An asset the home page shows, for the asset check (BACKLOG item 7): a red
+# square, replaced by a blue one later.
+mkdir -p "$P/assets"; png "$P/assets/fhrm.png" 255 0 0
+sed -i 's/^flutter:$/flutter:\n  assets:\n    - assets\//' "$P/pubspec.yaml"
+sed -i "s/^\( *\)const Text('You have pushed the button this many times:'),/\1Image.asset('assets\/fhrm.png', width: 200, height: 200),\n\1const Text('You have pushed the button this many times:'),/" "$P/lib/main.dart"
+grep -q "Image.asset('assets/fhrm.png'" "$P/lib/main.dart" && grep -q '^    - assets/$' "$P/pubspec.yaml" \
+  && ok "the home page shows assets/fhrm.png" || { no "asset set up" "$(grep -n -A3 '^flutter:' "$P/pubspec.yaml"; grep -n 'pushed the button' "$P/lib/main.dart")"; exit 1; }
 
 # Gradle first, with no emulator running. Everything here is on /dev/sda, a
 # spinning disk: the AVD, the SDK and the Gradle home. A cold-booting emulator
@@ -104,7 +124,7 @@ echo "start.sh (Gradle now warm)"
 t0=$(date +%s)
 out=$(START_WAIT=1200 bash "$S/start.sh" 2>&1); rc=$?
 echo "$out" | sed 's/^/    /'
-[ $rc = 0 ] && ok "up in $(( $(date +%s) - t0 ))s, without --build (the app was not installed)" || no "start" "rc=$rc; last of the log:
+[ $rc = 0 ] && grep -q '^up after [0-9]*s' <<<"$out" && ok "up in $(( $(date +%s) - t0 ))s, without --build (the app was not installed); $(grep -o 'up after [0-9]*s' <<<"$out")" || no "start" "rc=$rc; last of the log:
 $(tail -30 "$RDIR/frun-$serial.log" 2>/dev/null)"
 grep -q "flavour none, lib/main.dart" <<<"$out" && ok "describe: unflavoured, lib/main.dart" || no "describe" "$out"
 
@@ -123,6 +143,32 @@ sed 's/^/    /' "$TMPDIR/fhrm-and-watch.out"
 shot=$(sed -n 's/^SHOT: //p' "$TMPDIR/fhrm-and-watch.out")
 grep -q '^exit=0' "$TMPDIR/fhrm-and-watch.out" && grep -q 'Reloaded 1 of' "$TMPDIR/fhrm-and-watch.out" && [ -s "$shot" ] && file "$shot" | grep -q PNG \
   && { ok "synced nothing (same checkout), reloaded, PNG screenshot"; cp "$shot" "$SCR/android-watch-shot.png"; } || no "watch" "shot=$shot"
+
+# w1 <name> — one watcher run in the background, output in $TMPDIR/fhrm-and-<name>.out
+w1(){ WO=$TMPDIR/fhrm-and-$1.out; ( timeout 180 bash "$S/watch.sh" > "$WO" 2>&1; echo "exit=$?" >> "$WO" ) & w=$!; }
+show(){ sed 's/^/    /' "$WO"; }
+
+echo "a save between two watcher runs (BACKLOG item 6)"
+sed -i 's/fhrm watch test/fhrm gap test/' "$P/lib/main.dart"   # no watcher running now
+s0=$SECONDS; w1 gap; wait "$w"; show
+grep -q '^exit=0' "$WO" && grep -q 'saved: lib/main.dart' "$WO" && grep -q 'Reloaded 1 of' "$WO" && [ $((SECONDS - s0)) -lt 30 ] \
+  && ok "handled by the next run at once ($((SECONDS - s0))s)" || no "a save between two watcher runs" "see above"
+shot0=$(sed -n 's/^SHOT: //p' "$WO"); [ -s "$shot0" ] && cp "$shot0" "$SCR/android-before-asset.png"
+
+echo "an asset save (BACKLOG item 7)"
+w1 asset; sleep 5; png "$P/assets/fhrm.png" 0 0 255; wait "$w"; show
+shot1=$(sed -n 's/^SHOT: //p' "$WO")
+grep -q '^exit=0' "$WO" && grep -q 'saved: assets/fhrm.png' "$WO" && grep -q 'Restarted application' "$WO" && grep -q 'state was reset' "$WO" \
+  && ok "hot restarted for the asset" || no "an asset save" "see above"
+[ -s "$shot1" ] && cp "$shot1" "$SCR/android-after-asset.png"
+[ -s "$shot0" ] && [ -s "$shot1" ] && ! cmp -s "$shot0" "$shot1" \
+  && ok "the screenshot changed (compare $SCR/android-before-asset.png and android-after-asset.png)" \
+  || no "the screenshot changed after the asset save" "before=$shot0 after=$shot1"
+
+echo "a pubspec.yaml save"
+w1 pubspec; sleep 5; echo "# fhrm probe" >> "$P/pubspec.yaml"; wait "$w"; show
+grep -q '^exit=4' "$WO" && grep -qx 'REBUILD: pubspec.yaml' "$WO" && ! grep -q '^SHOT: ' "$WO" \
+  && ok "exit 4, REBUILD: pubspec.yaml, no reload" || no "a pubspec.yaml save" "see above"
 
 echo "stop"
 out=$(bash "$S/stop.sh" 2>&1); echo "$out" | sed 's/^/    /'

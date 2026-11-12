@@ -70,6 +70,13 @@ Each item's status was checked against 1.0.0 on 9 Nov 2026, and against
    look, so a save after that look goes to the next run. Tested: a save made
    between two runs is synced and reloaded within 5 s of the next run
    starting, and the run after that does not replay it.
+   Run on real devices 12 Nov 2026: on the Mac (`mac-remaining.sh`, mac-home,
+   iPhone 16 Pro, hugoboss-flutter-runner) handled 4 s after the next run
+   started; on the Android emulator over the bridge (`android-bridge.sh`) 3 s.
+   It also changed how `mac-errors.sh` had to be written: each step edited the
+   file, started the watcher, then touched the file again, and the watcher now
+   handles the edit as it starts, leaving the touch for the next step's run.
+   The script no longer touches.
 
 7. **Only `lib/**/*.dart` is watched.** Assets, translation JSON, `pubspec.yaml`
    and iOS native code are neither synced nor reloaded — the last two need a
@@ -94,8 +101,18 @@ Each item's status was checked against 1.0.0 on 9 Nov 2026, and against
    Tested against the stand-in, not yet on a real Flutter run: an asset save
    is synced and restarted; a `pubspec.yaml` save is not synced and exits 4; a
    code save together with an `ios/Runner` save reloads and lists the native
-   file; `ios/Pods` and editor backups trigger nothing. Whether Flutter's
-   restart picks up a changed asset on a real run is unchecked.
+   file; `ios/Pods` and editor backups trigger nothing.
+   Run on real devices 12 Nov 2026. On the Android emulator
+   (`android-bridge.sh`): the probe app's home page shows `assets/fhrm.png`; a
+   red square replaced by a blue one was hot restarted, and the screenshot after
+   it shows the blue square where the red one was. On the Mac
+   (`mac-remaining.sh`): a new file under `assets/` reached the Mac's checkout by
+   rsync and the app hot restarted (465 ms); a `pubspec.yaml` save exited 4
+   with the Mac's copy unchanged. The first Mac run found a fault, fixed: a file
+   put back with `git checkout --` gets a new time, so the next run listed
+   `pubspec.yaml` as a REBUILD although it matched `HEAD`. `watch.sh` now drops
+   tracked files identical to `HEAD` from the REBUILD list, and goes on
+   watching when nothing else is left.
 
 8. **One simulator.** `DEV` picks a single device; the iPad booted alongside it
    is ignored. Reloading both would mean two `flutter run`s, so two fifos and
@@ -115,6 +132,8 @@ Each item's status was checked against 1.0.0 on 9 Nov 2026, and against
    replacing `START_TRIES` × `START_POLL`. A connection that returns nothing is
    retried rather than read as a failure. Tested: a 4 s build is waited for in
    at most 2 connections; `START_WAIT=4` gives up after 4 s.
+   Run on real devices 12 Nov 2026: up after 27 s on the Mac, over ssh; up
+   after 62 s on the Android emulator, in one bridge call.
 
 10. **Nothing notices when `flutter run` dies.** The log gets
     `[frun] flutter run exited`; the watcher keeps syncing into a dead app and

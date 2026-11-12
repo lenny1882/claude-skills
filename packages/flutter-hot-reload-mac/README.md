@@ -189,6 +189,18 @@ a watcher save 310 ms), and on this machine `android-bridge.sh` with
 `TRANSPORT=local` 10 of 10 (reload 155 ms, restart 3.2 s, a watcher save
 522 ms).
 
+**Items 5, 6, 7 and 9, 12 Nov 2026** (on `main`, not released), against
+mac-home and the iPhone 16 Pro simulator, and on this machine against the
+`Pixel_6_Pro_API_34` emulator over the bridge: `mac-remaining.sh` 11 of 11
+(up after 27 s; a save made between two watcher runs handled 4 s after the next
+started; an asset rsynced and hot restarted in 465 ms; a `pubspec.yaml` save
+exiting 4 with the Mac's copy untouched), `mac-errors.sh` 9 of 9,
+`mac-guards.sh` 6 of 6, `mac-two-devices.sh` 6 of 6 (reloads of 135 and
+148 ms), and `android-bridge.sh` 15 of 15 (up after 62 s; the gap save in 3 s;
+a red asset replaced by a blue one, hot restarted, the screenshot showing
+blue). The first Mac run found one fault in `watch.sh`, fixed: a file put back
+to `HEAD` with `git checkout` was listed as a REBUILD.
+
 The scripts behind every check above are in `test/manual/`.
 
 **1.0**, 25 Aug 2026, against `my-mac` and the iPhone 16 Pro simulator, on
