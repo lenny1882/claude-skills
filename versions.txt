@@ -1,6 +1,6 @@
 again 1.0.1
 compare 1.0.0
-flutter-hot-reload-mac 1.0.1
+flutter-hot-reload-mac 2.0.0
 mate 1.0.0
 one-by-one 1.0.0
 owl 1.0.1
