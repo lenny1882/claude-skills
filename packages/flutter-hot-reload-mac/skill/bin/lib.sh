@@ -20,7 +20,7 @@ NEEDS_MD_LIB=1
 # functions; the variables are listed so test/run-tests.sh can check a
 # maestro-drive checkout still sets every one of them.
 MD_USES_FUNCS="_pick_host _ssh _push _pull _dev _label_guard _fs_shared _where"
-MD_USES_VARS="MAESTRO_DRIVE_CONF_FOUND PROJECT_DIR TRANSPORT MAC_HOST REPO APP_ID DEV RDIR RMODS LDIR SSH_OPTS PLATFORM_SH FRAMEWORK_SH"
+MD_USES_VARS="MAESTRO_DRIVE_CONF_FOUND PROJECT_DIR TRANSPORT MAC_HOST REPO APP_ID DEV RDIR RMODS LDIR SSH_OPTS PLATFORM PLATFORM_SH FRAMEWORK_SH"
 
 : "${CLAUDE_DIR:=$HOME/.claude}"
 MD_DIR=${FHRM_MAESTRO_DRIVE:-$CLAUDE_DIR/skills/maestro-drive}
@@ -88,6 +88,9 @@ mkdir -p "$FLDIR/shots"
 # place to write.
 FHRM_SKILL=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 if _fs_shared; then RPY="$FHRM_SKILL/remote/frun.py"; else RPY="$RDIR/frun.py"; fi
+
+# A physical iPhone: maestro-drive's PLATFORM=ios-device (BACKLOG item 21).
+_phone() { [ "${PLATFORM:-ios}" = ios-device ]; }
 
 # Per-device remote paths. One run per device, so two simulators can each have
 # one, and a stop kills only its own. maestro-drive's runners/flutter/vmservice.sh

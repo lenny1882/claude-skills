@@ -26,6 +26,9 @@ Environment (all set by bin/start.sh):
     FRUN_FLAVOR    --flavor value, empty for none
     FRUN_TARGET    -t value
     FRUN_GEM_HOME  CocoaPods' gem directory, only when pod is not on PATH
+    FRUN_APP_BINARY  a prebuilt, signed .app for a phone: flutter run installs
+                   and runs it (--use-application-binary) rather than building
+                   and signing, which fails over ssh (BACKLOG item 21)
     FRUN_FIFO      keystroke fifo
     FRUN_LOG       flutter's output
     FRUN_PID       written as "<this pid> <flutter pid> <repo>"; removed on exit
@@ -46,6 +49,7 @@ FLUTTER = need("FRUN_FLUTTER")
 FLAVOR = os.environ.get("FRUN_FLAVOR", "")
 TARGET = os.environ.get("FRUN_TARGET", "lib/main.dart")
 GEM_HOME = os.environ.get("FRUN_GEM_HOME", "")
+APP_BINARY = os.environ.get("FRUN_APP_BINARY", "")
 FIFO = need("FRUN_FIFO")
 LOG = need("FRUN_LOG")
 PIDFILE = need("FRUN_PID")
@@ -66,6 +70,8 @@ flutter = FLUTTER if os.path.isabs(FLUTTER) else os.path.join(REPO, FLUTTER)
 cmd = [flutter, "run", "-d", DEV, "-t", TARGET]
 if FLAVOR:
     cmd[2:2] = ["--flavor", FLAVOR]
+if APP_BINARY:
+    cmd += ["--debug", "--use-application-binary", APP_BINARY]
 
 master, slave = pty.openpty()
 p = subprocess.Popen(cmd, cwd=REPO, env=env,

@@ -36,7 +36,7 @@ is(){ [ "$2" = "$3" ] && ok "$1" || no "$1" "expected '$2', got '$3'"; }
 
 # --- the stand-in maestro-drive -------------------------------------------------
 MD="$CLAUDE_DIR/skills/maestro-drive"
-mkdir -p "$MD/bin" "$MD/runners/flutter" "$MD/runners/ios"
+mkdir -p "$MD/bin" "$MD/runners/flutter" "$MD/runners/ios" "$MD/runners/ios-device"
 export FAKE_RDIR="$TMP/rdir"; mkdir -p "$FAKE_RDIR"
 export SSH_LOG="$TMP/ssh.log"; : > "$SSH_LOG"
 cat > "$MD/bin/lib.sh" <<'SH'
@@ -52,7 +52,7 @@ else PROJECT_DIR=$PWD; fi
 : "${TRANSPORT:=local}" "${MAC_HOST:=}" "${REPO:=}" "${APP_ID:=}" "${DEV:=}"
 : "${RDIR:=$FAKE_RDIR}" "${LDIR:=${TMPDIR:-/tmp}}"
 RMODS="$(cd "$(dirname "${BASH_SOURCE[0]}")/../runners" && pwd)"
-PLATFORM_SH="$RMODS/ios/platform.sh"; FRAMEWORK_SH="$RMODS/flutter/framework.sh"
+PLATFORM_SH="$RMODS/${PLATFORM:-ios}/platform.sh"; FRAMEWORK_SH="$RMODS/flutter/framework.sh"
 SSH_OPTS=(-o BatchMode=yes)
 mkdir -p "$LDIR"
 _fs_shared() { [ "$TRANSPORT" != ssh ]; }
@@ -74,14 +74,44 @@ esac
 # makes this one do the same, so only its output can say.
 [ "$1" != installed-info ] || [ "${FAKE_INSTALLED:-0}" = 1 ] || [ -n "${FAKE_ANDROID:-}" ]
 SH
+# The phone runner: what start.sh and watch.sh call on it, recording installs.
+cat > "$MD/runners/ios-device/platform.sh" <<'SH'
+#!/bin/sh
+case $1 in
+  installed-info) [ "${FAKE_INSTALLED:-0}" = 1 ] && echo version=1.0 ;;
+  install) echo "install $2 $3 $4" >> "$FAKE_RDIR/phone.calls"; echo "installed  $2 ($4)" ;;
+  screenshot) echo PNG > "$3" ;;
+esac
+[ "$1" != installed-info ] || [ "${FAKE_INSTALLED:-0}" = 1 ]
+SH
 cat > "$MD/runners/flutter/framework.sh" <<'SH'
 #!/bin/sh
-[ "$1" = describe ] || exit 2
+case $1 in
+  device-check)
+    if [ -n "${FAKE_NO_ROSETTA:-}" ]; then echo "ROSETTA IS NOT INSTALLED on this Mac" >&2; exit 1; fi
+    echo "rosetta: installed"; exit 0 ;;
+  run-diagnose)
+    n=0
+    grep -q "incorrect architecture" "$2" && { echo "ROSETTA: Flutter's bundled iproxy is x86_64"; n=1; }
+    grep -q "LLDB is taking longer" "$2" && { echo "LLDB STALL: lldb attached but never handed the app on"; n=1; }
+    [ $n = 1 ] || { echo "run-diagnose: no known phone failure in $2"; exit 1; } ;;
+  build)
+    echo "build $*" >> "$FAKE_RDIR/phone.calls"
+    [ -n "${FAKE_BUILD_FAIL:-}" ] && { echo "error: no provisioning profile" >&2; exit 1; }
+    echo "building for device in the GUI session (debug mode)"
+    echo "artifact   $2/build/ios/iphoneos/Runner.app" ;;
+  # As the real one: a reader the caller stops by its name, idevicesyslog -u <udid>.
+  logs) echo "flutter: hello from $2"
+        printf '%s\n' 'flutter: \134^[[90m[\M-p\M^_\M^L\M^N Easy Localization] [DEBUG] Start\134^[[0m'
+        exec bash -c 'exec -a "idevicesyslog -u $1" sleep 30' _ "$2" ;;
+esac
+[ "$1" = describe ] || exit 0
 [ -n "${FAKE_UNDECIDED:-}" ] && { echo "flavour NOT DECIDED: dev, uat" >&2; exit 1; }
 printf 'FLUTTER=%s\nFLAVOR=%s\nTARGET=%s\nGEM_HOME=%s\n' "$FAKE_FLUTTER" "${FAKE_FLAVOR-dev}" "${FAKE_TARGET-lib/main_dev.dart}" "${FAKE_GEM:-}"
 SH
 cat > "$MD/runners/flutter/build.sh" <<'SH'
 #!/bin/sh
+# --debug) is what start.sh looks for: a maestro-drive with phone debug builds.
 F=; T=
 while [ $# -gt 0 ]; do case $1 in --flavor) F=$2; shift 2 ;; --target) T=$2; shift 2 ;; *) shift ;; esac; done
 printf 'FLUTTER=%s\nFLAVOR=%s\nTARGET=%s\nGEM_HOME=\n' "$FAKE_FLUTTER" "$F" "${T:-lib/main_$F.dart}"
@@ -95,6 +125,9 @@ cat > "$FAKE_FLUTTER" <<'SH'
 echo "ARGS: $*"
 echo "GEM_HOME=${GEM_HOME:-unset}"
 [ -n "${FAKE_SLOW:-}" ] && sleep "$FAKE_SLOW"   # a build that takes a while
+# A phone's failures, as flutter prints them (BACKLOG item 21).
+[ -n "${FAKE_LLDB:-}" ] && { echo "LLDB is taking longer than expected to start debugging the app."; sleep 60; }
+[ -n "${FAKE_ARCH:-}" ] && { echo "Flutter failed to run iproxy: built with the incorrect architecture"; exit 1; }
 echo "Flutter run key commands."
 while IFS= read -r -n1 c; do
   case $c in
@@ -408,6 +441,53 @@ st start --build; rc=$?
   && ok "a commit made there is not overwritten" || no "a commit made there is not overwritten" "rc=$rc $(cat "$TMP/out")"
 st stop
 
+echo "a phone (PLATFORM=ios-device)"
+ph(){ ( cd "$P" && PLATFORM=ios-device DEV=PHONE-1 bash "$BIN/$1.sh" "${@:2}" ) >"$TMP/out" 2>&1; }
+rm -f "$FAKE_RDIR/phone.calls"
+MDOLD="$TMP/md-old"; cp -r "$MD" "$MDOLD"; sed -i '/^  device-check)/,/exit 0 ;;$/d' "$MDOLD/runners/flutter/framework.sh"
+( cd "$P" && FHRM_MAESTRO_DRIVE="$MDOLD" PLATFORM=ios-device DEV=PHONE-1 bash "$BIN/start.sh" --build --no-branch ) >"$TMP/out" 2>&1; rc=$?
+[ $rc = 1 ] && grep -q "no phone hot-reload support" "$TMP/out" && [ ! -e "$FAKE_RDIR/phone.calls" ] \
+  && ok "a maestro-drive without the phone commands is refused, saying to update it" || no "an old maestro-drive is refused" "rc=$rc $(cat "$TMP/out")"
+FAKE_NO_ROSETTA=1 ph start --build --no-branch; rc=$?
+[ $rc = 1 ] && grep -q "ROSETTA IS NOT INSTALLED" "$TMP/out" && grep -q "nothing was changed" "$TMP/out" \
+  && [ ! -e "$FAKE_RDIR/phone.calls" ] && [ ! -e "$FAKE_RDIR/frun-PHONE-1.pid" ] \
+  && ok "device-check refusing stops it before the build, saying why" || no "device-check refusing stops it" "rc=$rc $(cat "$TMP/out")"
+FAKE_BUILD_FAIL=1 ph start --build --no-branch; rc=$?
+[ $rc = 1 ] && grep -q "the phone build failed" "$TMP/out" && grep -q "no provisioning profile" "$TMP/out" && [ ! -e "$FAKE_RDIR/frun-PHONE-1.pid" ] \
+  && ok "a failed phone build stops it with the build's own error" || no "a failed phone build" "rc=$rc $(cat "$TMP/out")"
+rm -f "$FAKE_RDIR/phone.calls"
+ph start --build --no-branch; rc=$?
+[ $rc = 0 ] && grep -q "^up after" "$TMP/out" && ok "a phone run comes up" || no "a phone run comes up" "rc=$rc $(cat "$TMP/out")"
+grep -q -- "build $B --platform ios-device --device PHONE-1 --mode debug --app-id com.example.app --variant dev --target lib/main_dev.dart" "$FAKE_RDIR/phone.calls" \
+  && ok "built by maestro-drive: --platform ios-device --device --mode debug" || no "built by maestro-drive" "$(cat "$FAKE_RDIR/phone.calls")"
+grep -q "^install PHONE-1 $B/build/ios/iphoneos/Runner.app com.example.app" "$FAKE_RDIR/phone.calls" \
+  && ok "the built .app is installed on the phone" || no "the built .app is installed" "$(cat "$FAKE_RDIR/phone.calls")"
+grep -q -- "ARGS: run --flavor dev -d PHONE-1 -t lib/main_dev.dart --debug --use-application-binary $B/build/ios/iphoneos/Runner.app" "$FAKE_RDIR/frun-PHONE-1.log" \
+  && ok "flutter run gets --use-application-binary with that .app" || no "flutter run gets --use-application-binary" "$(head -2 "$FAKE_RDIR/frun-PHONE-1.log")"
+ph reload; grep -q "Reloaded 1 of 1" "$TMP/out" && ok "a phone run reloads" || no "a phone run reloads" "$(cat "$TMP/out")"
+( cd "$P" && PLATFORM=ios-device DEV=PHONE-1 WATCH_ALIVE=0 timeout 30 bash "$BIN/watch.sh" > "$TMP/watch.out" 2>&1; echo "rc=$?" >> "$TMP/watch.out" ) & wpid=$!
+sleep 1; echo "// phone save" >> "$P/lib/main.dart"; wait "$wpid"
+shot=$(sed -n 's/^SHOT: //p' "$TMP/watch.out")
+grep -q "rc=0" "$TMP/watch.out" && [ "$(cat "$shot" 2>/dev/null)" = PNG ] \
+  && ok "a save on a phone run reloads and screenshots through the phone runner" || no "a save on a phone run" "$(cat "$TMP/watch.out")"
+s0=$SECONDS; ph logs 1; f=$(sed -n 's/.* -> //p' "$TMP/out" | head -1)
+grep -q "flutter: hello from PHONE-1" "$f" 2>/dev/null && grep -qxF "flutter: [ Easy Localization] [DEBUG] Start" "$f" && grep -q "stopped; 2 app lines" "$TMP/out" \
+  && [ $((SECONDS - s0)) -lt 10 ] \
+  && ok "logs.sh writes the phone's flutter: lines to a file, cleaned, for the time asked" || no "logs.sh on a phone" "$(cat "$TMP/out")"
+pgrep -f "idevicesyslog -u PHONE-1" >/dev/null && no "logs.sh leaves nothing reading" "the reader is still running" \
+  || ok "and leaves nothing reading the phone's log"
+( cd "$P" && bash "$BIN/logs.sh" 1 ) >"$TMP/out" 2>&1; rc=$?
+[ $rc = 1 ] && grep -q "for a phone only" "$TMP/out" && ok "logs.sh on a simulator says where its output is instead" || no "logs.sh on a simulator" "rc=$rc $(cat "$TMP/out")"
+ph stop
+s0=$SECONDS; FAKE_LLDB=1 LLDB_GRACE=1 START_CHUNK=1 ph start --build --no-branch; rc=$?
+[ $rc = 1 ] && grep -q "LLDB is slow" "$TMP/out" && grep -q "LLDB STALL" "$TMP/out" && [ $((SECONDS - s0)) -lt 10 ] \
+  && ok "an LLDB stall ends the wait after LLDB_GRACE, named by run-diagnose" || no "an LLDB stall" "rc=$rc $((SECONDS - s0))s $(cat "$TMP/out")"
+ph stop
+FAKE_ARCH=1 ph start --build --no-branch; rc=$?
+[ $rc = 1 ] && grep -q "^failed" "$TMP/out" && grep -q "ROSETTA: Flutter's bundled iproxy" "$TMP/out" \
+  && ok "iproxy's wrong architecture fails at once, named by run-diagnose" || no "iproxy's wrong architecture" "rc=$rc $(cat "$TMP/out")"
+ph stop
+
 echo "installer — maestro-drive"
 "$REPO/install.sh" --yes >"$TMP/out" 2>&1 && ok "installs with maestro-drive present" || no "installs with maestro-drive present" "$(tail -5 "$TMP/out")"
 mv "$MD" "$TMP/md-away"
@@ -427,9 +507,9 @@ touch "$CLAUDE_DIR/skills/flutter-hot-reload-mac/stale-hand-copy"
 [ ! -e "$CLAUDE_DIR/skills/flutter-hot-reload-mac/stale-hand-copy" ] \
   && [ -f "$CLAUDE_DIR/skills/flutter-hot-reload-mac/SKILL.md" ] \
   && ok "installing over a hand copy replaces it" || no "installing over a hand copy replaces it" "$(ls "$CLAUDE_DIR/skills/flutter-hot-reload-mac")"
-nx=; for f in start watch reload status stop; do [ -x "$CLAUDE_DIR/skills/flutter-hot-reload-mac/bin/$f.sh" ] || nx="$nx $f"; done
+nx=; for f in start watch reload status stop logs; do [ -x "$CLAUDE_DIR/skills/flutter-hot-reload-mac/bin/$f.sh" ] || nx="$nx $f"; done
 [ -z "$nx" ] && ok "the installed scripts are executable" || no "the installed scripts are executable" "not:$nx"
-nx=; for f in start watch reload status stop; do git -C "$REPO" ls-files -s "skill/bin/$f.sh" | grep -q '^100755' || nx="$nx $f"; done
+nx=; for f in start watch reload status stop logs; do git -C "$REPO" ls-files -s "skill/bin/$f.sh" | grep -q '^100755' || nx="$nx $f"; done
 [ -z "$nx" ] && ok "and carry the bit in git, so the release tarball has it" || no "and carry the bit in git" "not:$nx"
 "$REPO/install.sh" --link --yes >/dev/null 2>&1
 [ -L "$CLAUDE_DIR/skills/flutter-hot-reload-mac" ] && ok "--link symlinks the skill" || no "--link symlinks the skill" "not a symlink"
@@ -455,6 +535,11 @@ if git -C "$MD_SRC" rev-parse -q --verify "$MD_REF" >/dev/null 2>&1; then
     && ok "its framework.sh describe takes --env" || no "its framework.sh describe takes --env" "no --env"
   git -C "$MD_SRC" show "$MD_REF:skill/runners/flutter/vmservice.sh" | grep -q 'frun-\$DEV.log' \
     && ok "its vmservice.sh reads the per-device frun log" || no "its vmservice.sh reads the per-device frun log" "not found"
+  fw=$(git -C "$MD_SRC" show "$MD_REF:skill/runners/flutter/framework.sh")
+  gone=; for v in device-check run-diagnose logs build; do grep -q "^$v)" <<<"$fw" || gone="$gone $v"; done
+  [ -z "$gone" ] && ok "its framework.sh has the phone commands (device-check, run-diagnose, logs, build)" || no "its framework.sh has the phone commands" "missing:$gone"
+  git -C "$MD_SRC" show "$MD_REF:skill/runners/flutter/build.sh" | grep -q -- '--debug)' && grep -q 'artifact ' <<<"$(git -C "$MD_SRC" show "$MD_REF:skill/runners/flutter/build.sh")" \
+    && ok "its build.sh takes --debug for a phone and prints the artifact" || no "its build.sh takes --debug" "not found"
 else
   echo "  (skipped: no maestro-drive checkout at $MD_SRC; set MD_SRC)"
 fi

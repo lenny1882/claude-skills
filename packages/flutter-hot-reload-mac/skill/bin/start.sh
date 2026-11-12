@@ -7,6 +7,12 @@
 #   bin/start.sh --no-branch  # leave the build checkout's branch alone
 #   bin/start.sh --build      # rebuild even though the app is already installed
 #
+# On a physical iPhone (PLATFORM=ios-device in the conf, BACKLOG item 21) the
+# build is maestro-drive's: a signed debug build in the Mac's GUI session,
+# because codesign fails over ssh. flutter run then installs and runs that
+# .app (--use-application-binary). Rosetta is checked first, and a run that
+# does not come up is diagnosed by maestro-drive's run-diagnose.
+#
 # Exits 0 once the app is up, 3 when the app is already installed and --build
 # was not given, and 1 for anything else that stopped it.
 set -uo pipefail
@@ -25,6 +31,8 @@ done
 : "${START_WAIT:=600}"   # seconds to wait for the app, all told
 : "${START_POLL:=2}"     # seconds between looks at the log, on the Mac
 : "${START_CHUNK:=120}"  # seconds one connection waits before the next
+: "${LLDB_GRACE:=180}"   # phone: seconds after "LLDB is taking longer" before giving up
+: "${DEVICE_BUILD_TIMEOUT:=1200}"   # phone: seconds for maestro-drive's GUI-session build
 
 [ "${RUNNER:-flutter}" = flutter ] || {
   echo "start: RUNNER=$RUNNER in the conf; this skill hot-reloads Flutter only" >&2; exit 1; }
@@ -123,6 +131,22 @@ done <<< "$desc"
 [ -n "$FL" ] || { echo "start: maestro-drive found no Flutter SDK for $REPO" >&2; exit 1; }
 : "${TG:=lib/main.dart}"
 
+# --- a phone: maestro-drive's checks, before anything changes -----------------
+if _phone; then
+  # The commands this needs arrived in maestro-drive after its 2.2 releases
+  # (its item 176). An older one answers "unknown" to them, which would read as
+  # a failure of the phone rather than of the install.
+  have=$(_ssh "grep -qE '^[[:space:]]*device-check\)' '$FRAMEWORK_SH' && grep -qE '^[[:space:]]*run-diagnose\)' '$FRAMEWORK_SH' \
+    && grep -q -- '--debug)' '$RMODS/flutter/build.sh' && echo yes")
+  if [ "$have" != yes ]; then
+    echo "start: this maestro-drive has no phone hot-reload support (device-check, run-diagnose" >&2
+    echo "  and build --mode debug, its BACKLOG item 176). Update maestro-drive." >&2
+    exit 1
+  fi
+  _ssh "sh '$FRAMEWORK_SH' device-check '$FL'" || {
+    echo "start: maestro-drive's device-check refused (above); nothing was changed." >&2; exit 1; }
+fi
+
 # --- the branch -----------------------------------------------------------------
 same_checkout=0
 _fs_shared && [ "$PROJECT_DIR" -ef "$REPO" ] && same_checkout=1
@@ -189,6 +213,24 @@ fi
 touch "$(_mark "$dev")"
 _fs_shared || _push "$FHRM_SKILL/remote/frun.py" "$RPY" || exit 1
 
+# --- a phone: the signed debug build ----------------------------------------------
+APPBIN=
+if _phone; then
+  echo "building a signed debug app for $dev in the Mac's GUI session (minutes, cold)"
+  bout=$(TMO=$((DEVICE_BUILD_TIMEOUT + 60)) _ssh "DEVICE_BUILD_TIMEOUT=$DEVICE_BUILD_TIMEOUT RDIR='$RDIR' \
+    sh '$FRAMEWORK_SH' build '$REPO' --platform ios-device --device '$dev' --mode debug \
+    --app-id '$APP_ID' ${FV:+--variant '$FV'} --target '$TG'" 2>&1); brc=$?
+  APPBIN=$(printf '%s\n' "$bout" | sed -n 's/^artifact  *//p' | tail -1)
+  if [ $brc != 0 ] || [ -z "$APPBIN" ]; then
+    echo "start: the phone build failed (rc=$brc). Last of its output:" >&2
+    printf '%s\n' "$bout" | tail -25 >&2
+    exit 1
+  fi
+  echo "  built $APPBIN"
+  _ssh "sh '$PLATFORM_SH' install '$dev' '$APPBIN' '$APP_ID'" || {
+    echo "start: installing $APPBIN on $dev failed (above)" >&2; exit 1; }
+fi
+
 # --- launch ---------------------------------------------------------------------
 # This device's own previous run, and only that: other devices' runs, and other
 # sessions', are left alone.
@@ -199,10 +241,13 @@ if [ -n "$old" ]; then
 fi
 
 echo "starting flutter run on $dev (flavour ${FV:-none}, $TG)"
+# A phone launches only while unlocked, and a locked one just waits; say so
+# now, while it can still be acted on, not when the wait gives up.
+_phone && echo ">>> $dev must be UNLOCKED now, and stay unlocked until 'up': the launch waits on it."
 _ssh "rm -f '$RLOG'
 export FRUN_REPO='$REPO' FRUN_DEV='$dev' FRUN_FLUTTER='$FL'
 export FRUN_FLAVOR='$FV' FRUN_TARGET='$TG' FRUN_GEM_HOME='$GH'
-export FRUN_FIFO='$RFIFO' FRUN_LOG='$RLOG' FRUN_PID='$RPID'
+export FRUN_FIFO='$RFIFO' FRUN_LOG='$RLOG' FRUN_PID='$RPID' FRUN_APP_BINARY='$APPBIN'
 # setsid where there is one: over maestro-drive's bridge each request runs under
 # timeout, which kills its whole process group a call or two later, and nohup
 # leaves frun.py in that group. macOS has no setsid; over ssh nohup is enough.
@@ -218,24 +263,37 @@ sleep 2; echo launched" || exit 1
 # up is seen within START_POLL of it.
 looks=$(awk -v c="$START_CHUNK" -v p="$START_POLL" 'BEGIN { n = int(c / p); print (n < 1 ? 1 : n) }')
 chunk_tmo=$(awk -v c="$START_CHUNK" -v p="$START_POLL" 'BEGIN { print int(c + p + 30) }')
+# What ends the wait as a failure. On a phone also the three failures
+# maestro-drive's run-diagnose names: no Rosetta for iproxy, and the VM Service
+# never found. LLDB's "taking longer" line is a warning, not an end: a run on
+# iOS 26.5.2 came up after it. It gets LLDB_GRACE seconds, then is a stall.
+FAILPAT='Error launching|Could not build|flutter run exited'
+_phone && FAILPAT="$FAILPAT|incorrect architecture|Dart VM Service was not discovered"
 printf 'waiting for the app'
-state=wait; t0=$SECONDS
+state=wait; t0=$SECONDS; lldb_at=
 while [ $((SECONDS - t0)) -lt "$START_WAIT" ]; do
   state=$(TMO=$chunk_tmo _ssh "i=0
 while :; do
   if grep -q 'key commands' '$RLOG' 2>/dev/null; then echo up; break
-  elif grep -qE 'Error launching|Could not build|flutter run exited' '$RLOG' 2>/dev/null; then echo failed; break; fi
-  i=\$((i+1)); [ \$i -ge $looks ] && { echo wait; break; }
+  elif grep -qE '$FAILPAT' '$RLOG' 2>/dev/null; then echo failed; break; fi
+  i=\$((i+1)); [ \$i -ge $looks ] && { grep -q 'LLDB is taking longer' '$RLOG' 2>/dev/null && echo wait-lldb || echo wait; break; }
   sleep $START_POLL
 done")
   # No answer at all is a dropped connection, not a verdict on the build.
   [ -n "$state" ] || { state=wait; sleep "$START_POLL"; }
+  if [ "$state" = wait-lldb ]; then
+    [ -n "$lldb_at" ] || { lldb_at=$SECONDS; printf ' (LLDB is slow)'; }
+    [ $((SECONDS - lldb_at)) -ge "$LLDB_GRACE" ] && { state=failed; break; }
+    state=wait
+  fi
   [ "$state" = wait ] || break
   printf ' %ds' $((SECONDS - t0))
 done
 echo
+# A phone run that did not come up: maestro-drive names the cause it can see.
+diagnose() { _phone && _ssh "sh '$FRAMEWORK_SH' run-diagnose '$RLOG'" | sed 's/^/  /'; }
 case $state in
   up) echo "up after $((SECONDS - t0))s. log: $(_where):$RLOG" ;;
-  failed) echo "failed. Last of $RLOG:"; _ssh "tail -25 '$RLOG'; tail -5 '$RERR'"; exit 1 ;;
-  *) echo "gave up waiting after $((SECONDS - t0))s. Last of $RLOG:"; _ssh "tail -25 '$RLOG'"; exit 1 ;;
+  failed) echo "failed. Last of $RLOG:"; _ssh "tail -25 '$RLOG'; tail -5 '$RERR'"; diagnose; exit 1 ;;
+  *) echo "gave up waiting after $((SECONDS - t0))s. Last of $RLOG:"; _ssh "tail -25 '$RLOG'"; diagnose; exit 1 ;;
 esac

@@ -38,6 +38,9 @@ This skill's own settings, in the same conf or exported for one call:
 | `RELOAD_SETTLE` | `1` | seconds to wait after the answer, for what the first frame throws |
 | `RELOAD_ERR_LINES` | `40` | lines of an error to show; the rest stay in the log |
 | `START_WAIT` | `600` | seconds `start.sh` waits for the app to come up |
+| `LLDB_GRACE` | `180` | phone: seconds after "LLDB is taking longer" before the wait gives up |
+| `DEVICE_BUILD_TIMEOUT` | `1200` | phone: seconds for `maestro-drive`'s signed build |
+| `LOGS_FOR` | `600` | phone: seconds `logs.sh` streams when given no number |
 
 1.0's `FLAVOR` and `TARGET` are still read, with a warning to rename them;
 `FLUTTER_BIN` is ignored.
@@ -49,6 +52,7 @@ bash $SKILL/bin/start.sh     # push branch, sync, launch, wait for the app
 bash $SKILL/bin/status.sh    # every run on the Mac: device, checkout, last reloads
 bash $SKILL/bin/reload.sh    # r by hand; `restart` for R
 bash $SKILL/bin/stop.sh      # stop this device's run, and only that
+bash $SKILL/bin/logs.sh      # a phone only: the app's own output, to a file
 ```
 
 `DEV=<udid>` before any of them picks the device; without it, `maestro-drive`
@@ -91,6 +95,33 @@ onto whatever branch is already there.
 
 A cold build of a branch the Mac has not seen takes a few minutes; after that,
 relaunching is about 40 seconds and a reload about 350 ms.
+
+## On a physical iPhone
+
+`PLATFORM=ios-device` in the conf (or exported) and `DEV=<the phone's udid>`.
+It needs a `maestro-drive` with its phone commands (`device-check`,
+`run-diagnose`, `logs`, `build --mode debug`); `start.sh` says so if the
+installed one lacks them. The phone must be plugged into the Mac, trusted,
+in Developer Mode, and listed in the provisioning profile of the flavour being
+built.
+
+`start.sh` then:
+1. runs `maestro-drive`'s `device-check`: no Rosetta, and Flutter's x86_64
+   `iproxy` would kill the run after the install. It stops with the command to
+   install Rosetta, which needs an administrator on the Mac. Pass that on.
+2. has `maestro-drive` build a signed debug app in the Mac's GUI session, since
+   `codesign` fails over ssh, and installs it;
+3. runs `flutter run --use-application-binary` on that app;
+4. prints `>>> ... must be UNLOCKED now`. **Tell the user at once**, while the
+   launch is waiting, not after it gives up.
+5. If the run does not come up — Flutter's `iproxy` failing, the VM Service
+   never found, or LLDB still "taking longer" after `LLDB_GRACE` — it prints
+   `maestro-drive`'s `run-diagnose`, which names the cause. Pass that on.
+
+Reload, restart, the watcher and its screenshots work as on a simulator. The
+app's own `print`/`debugPrint` output is not in the run's log on a phone:
+`bash $SKILL/bin/logs.sh [seconds]` with `run_in_background: true` streams it
+into `logs-<udid>.log` (it prints the path) for that long, then stops.
 
 ## The watch loop — how Claude drives it
 

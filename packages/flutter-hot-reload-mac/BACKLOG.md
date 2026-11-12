@@ -470,6 +470,46 @@ Each item's status was checked against 1.0.0 on 9 Nov 2026, and against
     CPU type"), which needs sudo there; and a USB iPhone on that Mac for the
     test run.
     Status: **OPEN**, raised 12 Nov 2026.
+    **DONE on `main`, not released (12 Nov 2026)**, as planned, steps 1 to 9.
+    - `start.sh` with `PLATFORM=ios-device`: checks the installed
+      `maestro-drive` has the phone commands (stops saying to update it if
+      not), runs `device-check` before anything changes, then after the sync
+      has `maestro-drive` build the signed debug app (`framework.sh build ...
+      --mode debug`, reading its `artifact` line; `DEVICE_BUILD_TIMEOUT`,
+      1200 s) and installs it. `frun.py` takes `FRUN_APP_BINARY` and adds
+      `--debug --use-application-binary <app>`. It prints `>>> <udid> must be
+      UNLOCKED now` as the launch starts.
+    - The wait, on a phone, also ends on "incorrect architecture" and "Dart VM
+      Service was not discovered"; "LLDB is taking longer" gets `LLDB_GRACE`
+      (180 s) and is then a stall. A run that does not come up prints
+      `run-diagnose`.
+    - `bin/logs.sh [seconds]`: `framework.sh logs` for `LOGS_FOR` (600) s,
+      bounded on the Mac too, into `logs-<udid>.log`, with idevicesyslog's
+      escaped colour codes and emoji bytes taken out. Its `pkill` pattern is
+      `[i]devicesyslog`: the plain one matched the shell running it, which
+      killed the test suite on the first run.
+    - `test/run-tests.sh`: 125 checks, with a stand-in `ios-device` runner and
+      stand-in `device-check`, `run-diagnose`, `build` and `logs`; the contract
+      check finds the four commands and `build.sh --debug` on `maestro-drive`'s
+      `main`.
+    On a phone, 12 Nov 2026 (`test/manual/mac-phone.sh`, mac-home, hz's iPhone,
+    an iPhone 11 on iOS 26.5.2, hugoboss-flutter-runner's UAT flavour,
+    `maestro-drive` `main` at `5bad32b`), 9 of 9: Rosetta found; the signed
+    debug build in the GUI session and the install; up 33 s after the build
+    (75 s in all); a reload 888 ms, a hot restart 2,794 ms; one watcher save,
+    reloaded in 254 ms, with a screenshot from the phone; `logs.sh` caught 11
+    `flutter:` lines in 20 s and left nothing reading; stop. The phone first
+    carried the maestro-drive-4a session's label, and `start.sh` refused it
+    until that session released it.
+    Run again after `logs.sh` began cleaning the lines and the script began
+    streaming `start.sh`'s output, 9 of 9: up 31 s after the build (69 s in
+    all), a reload 2,360 ms, a hot restart 1,285 ms, a watcher save 261 ms, 11
+    `flutter:` lines, now plain text (`flutter: [ Easy Localization] [DEBUG]
+    Start`), and the UNLOCK line reached the log while the launch waited.
+    Releasing needed a `maestro-drive` release carrying its item 176
+    (`ce8045f`, `0c1f6b3`, `ba38e68`): `start.sh` refuses a phone without it.
+    `maestro-drive` 2.3.0, released 12 Nov 2026 (tag `v2.3.0` at `dfbdca3`),
+    carries it, with its library version still 1.
 
 ## Scope
 

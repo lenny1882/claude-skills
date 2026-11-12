@@ -40,7 +40,7 @@ verify_probe() {
   [ -f "$f" ] || return 1
   head -1 "$f" | grep -q '^---$' || return 1
   grep -q '^name:' "$f" && grep -q '^description:' "$f" || return 1
-  for s in lib start watch reload status stop; do
+  for s in lib start watch reload status stop logs; do
     bash -n "$d/bin/$s.sh" 2>/dev/null || return 1
   done
   [ -f "$d/remote/frun.py" ] || return 1

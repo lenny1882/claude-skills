@@ -19,7 +19,9 @@ drift from `maestro-drive` is BACKLOG item 14.
 
 It needs a `maestro-drive` whose `bin/lib.sh` sets
 `MAESTRO_DRIVE_LIB_VERSION=1`. That is `maestro-drive` 2.2.0 and later;
-2.1.1 and earlier have no library version, and this refuses them.
+2.1.1 and earlier have no library version, and this refuses them. A physical
+iPhone (`PLATFORM=ios-device`) needs `maestro-drive` 2.3.0 or later, which has
+its phone commands; `start.sh` refuses a phone with an older one.
 
 The scripts in `skill/bin/` carry an execute bit since 2.1 (BACKLOG item 5);
 SKILL.md still calls them with `bash`.
@@ -34,6 +36,7 @@ SKILL.md still calls them with `bash`.
 | `skill/bin/watch.sh` | one save → sync → reload (restart for an asset) → screenshot → exit (`--loop` to stay up); a save made between two runs is handled by the next; exits 4 listing changes only a rebuild applies, 2 when the run has gone |
 | `skill/bin/reload.sh` | `r` / `restart` / `q` by hand; shows flutter's answer and any error the key threw |
 | `skill/bin/status.sh` | the Mac checkout's branch, and every run: device, checkout, last reloads |
+| `skill/bin/logs.sh` | a phone only: the app's `flutter: ` lines from the phone's syslog, through `maestro-drive`'s `logs`, to a file, for a set time |
 | `skill/bin/stop.sh` | stop this device's run, flutter included, and clear its files |
 | `skill/remote/frun.py` | the pty supervisor that makes hot reload reachable at all |
 
@@ -200,6 +203,12 @@ exiting 4 with the Mac's copy untouched), `mac-errors.sh` 9 of 9,
 a red asset replaced by a blue one, hot restarted, the screenshot showing
 blue). The first Mac run found one fault in `watch.sh`, fixed: a file put back
 to `HEAD` with `git checkout` was listed as a REBUILD.
+
+**On a phone, 12 Nov 2026** (BACKLOG item 21, on `main`, not released), against
+hz's iPhone (iPhone 11, iOS 26.5.2) on mac-home, with `maestro-drive`'s `main`:
+`mac-phone.sh` 9 of 9 — `maestro-drive`'s signed debug build and install, up
+33 s after it, a reload 888 ms, a hot restart 2.8 s, a watcher save reloaded in
+254 ms with the phone's screenshot, 11 `flutter:` lines from `logs.sh` in 20 s.
 
 The scripts behind every check above are in `test/manual/`.
 
