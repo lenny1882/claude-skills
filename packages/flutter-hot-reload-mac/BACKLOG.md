@@ -421,6 +421,26 @@ Each item's status was checked against 1.0.0 on 9 Nov 2026, and against
     Needs from `maestro-drive`: `--device` takes `--debug`. It builds
     `flutter build ios --profile` today (`build.sh:265`), and a profile build
     cannot hot reload. Asked of the maestro-drive-4a session 12 Nov 2026.
+    Done there the same day (`0c1f6b3`, then `ba38e68`, on its `main`, not
+    released): `framework.sh build <repo> --platform ios-device --device
+    <udid> --mode debug` builds `flutter build ios --debug` in the GUI
+    session and prints `artifact <path>`. That session then ran this route on
+    an iPhone 11 (iOS 26.5.2): the debug build with the UAT profile embedded,
+    a `devicectl` install, and `flutter run -d <udid> --debug -t
+    lib/main_uat.dart --use-application-binary build/ios/iphoneos/Runner.app`
+    over ssh with LLDB on reached its VM Service in 71 s; `r` reloaded in
+    301 ms. No LLDB stall and no mDNS failure. Its other route (a `devicectl`
+    launch, `framework.sh vm-url`, then `flutter attach --debug-url`) works on
+    iOS 18.7.9 only: on iOS 26 a debug build will not start without a
+    debugger ("Cannot create a FlutterEngine instance in debug mode without
+    Flutter tooling or Xcode"), and `vm-url` exits 3 saying so.
+    `--use-application-binary` has not been tried on iOS 18.
+    Also from that session: the Mac's `/tmp/maestro-mac` was emptied between
+    16:58 and 17:07 on 12 Nov 2026 (`maestro-drive` item 144). That is
+    `RDIR`, where this skill keeps `frun-<udid>.{in,log,pid}`; a wipe during a
+    run makes `reload.sh` find no run and `watch.sh` report it gone, and
+    `start.sh` recovers, since it pushes `frun.py` and the runner modules
+    every time.
 
     The rest of the plan:
     1. `PLATFORM=ios-device` in the conf picks the phone; that runner's
