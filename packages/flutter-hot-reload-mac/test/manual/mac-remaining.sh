@@ -4,13 +4,16 @@
 #   2. one save through watch.sh, after c3ee011 changed its PID-file read
 #   3. watch.sh's exit 2 when the run dies under it
 #   4. PROFILE layering reaching this skill's settings
-# Works from a clone of the project in the scratchpad, so the project's own
+#   5. reload and hot restart through reload.sh, each showing only its own answer
+#      (12 Nov: a fixed 4s sleep showed the previous reload's line for a 4.5s restart)
+# Works from a clone of the project in $TMPDIR (SC), so the project's own
 # checkout is only read. The Mac's branch is put back to where it was.
 # Logs to $TMPDIR/fhrm-mac-remaining.log.
 set -uo pipefail
 S=/mnt/sda/Development/github-lenny1882/claude-skills/packages/flutter-hot-reload-mac/skill/bin
 SRC=/mnt/sda/Development/oi/client_hugo-boss/hugoboss-flutter-runner
-SC=/tmp/claude-1000/-mnt-sda-Development-github-lenny1882-claude-skills/6e9299d0-74d4-40b8-904f-5eff596f9096/scratchpad/hb-clone
+: "${TMPDIR:=/tmp}"
+SC=${SC:-$TMPDIR/fhrm-hb-clone}   # made and removed by this script
 LOG=$TMPDIR/fhrm-mac-remaining.log
 exec > >(tee "$LOG") 2>&1
 pass=0; fail=0
@@ -49,6 +52,12 @@ echo "$out" | sed 's/^/    /'
 there=$(_ssh "git -C '$REPO' rev-parse HEAD")
 [ $rc = 0 ] && [ "$there" = "$new" ] && ok "the Mac's branch moved forward to the new commit, and the app came up" \
   || no "the Mac's branch moved forward" "rc=$rc there=$there new=$new"
+
+echo "5. reload, then hot restart"
+out=$(bash "$S/reload.sh" 2>&1); echo "$out" | sed 's/^/    /'
+grep -q 'Reloaded .* in ' <<<"$out" && ! grep -q Restarted <<<"$out" && ok "reload shows its own line" || no "reload" "$out"
+out=$(bash "$S/reload.sh" restart 2>&1); echo "$out" | sed 's/^/    /'
+grep -q 'Restarted application' <<<"$out" && ! grep -q Reloaded <<<"$out" && ok "restart waits for and shows its own line" || no "restart" "$out"
 
 echo "2. one save through watch.sh"
 ( timeout 120 bash "$S/watch.sh" > "$TMPDIR/fhrm-rem-watch.out" 2>&1; echo "exit=$?" >> "$TMPDIR/fhrm-rem-watch.out" ) &

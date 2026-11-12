@@ -165,6 +165,14 @@ same spinning disk it took over 25 minutes, alone 90 s. The bridge needs
 `maestro-drive` 2.2.1 or later; 2.2.0 let any session's end stop another
 session's bridge.
 
+**Mac again, 12 Nov 2026**, against mac-home after `reload.sh` and `watch.sh`
+began waiting for flutter's answer: `mac-remaining.sh` 7 of 7 — the
+fast-forward, a reload (181 ms) and a hot restart (387 ms) each showing only
+its own line, one watcher save with a screenshot, the watcher's exit 2, and
+`PROFILE` — and `mac-two-devices.sh` 6 of 6, reloads of 205 and 150 ms. The
+Android check over the bridge ran once more on `maestro-drive` 2.2.1, 10 of 10,
+the helper recording this session as its owner.
+
 The scripts behind every check above are in `test/manual/`.
 
 **1.0**, 25 Aug 2026, against `my-mac` and the iPhone 16 Pro simulator, on
