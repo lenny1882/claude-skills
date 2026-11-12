@@ -31,6 +31,8 @@ MARK="$FLDIR/watch-mark-$dev"
 
 [ -n "$(_alive "$dev")" ] || { echo "no run on $dev — bin/start.sh first" >&2; exit 2; }
 
+WPAT='Reloaded .* in |reload.*(failed|rejected)|^Error|Exception'
+
 touch "$MARK"
 echo "$(date +%H:%M:%S) watching $PROJECT_DIR/$WATCH_DIR -> $(_where) $dev"
 
@@ -42,11 +44,17 @@ while true; do
     _sync >/dev/null 2>&1
     echo "$(date +%H:%M:%S) saved: $(echo "$changed" | tr '\n' ' ')"
     # One round trip: the run is still there, the reload, the frame, the result.
+    # It waits for flutter's answer to this reload (see reload.sh), so the frame
+    # is taken after the reload and the line shown is this reload's.
     out=$(_ssh "[ -r '$RPID' ] && read p fl r < '$RPID' && kill -0 \"\$p\" 2>/dev/null || { echo RUN-GONE; tail -5 '$RLOG' 2>/dev/null; exit 0; }
+n0=\$(grep -cE '$WPAT' '$RLOG' 2>/dev/null); n0=\${n0:-0}
 printf 'r' > '$RFIFO'
-sleep 3
+i=0; n=\$n0
+while [ \$n -le \$n0 ] && [ \$i -lt ${RELOAD_TMO:-60} ]; do
+  sleep 1; i=\$((i+1)); n=\$(grep -cE '$WPAT' '$RLOG' 2>/dev/null); n=\${n:-0}
+done
 sh '$PLATFORM_SH' screenshot '$dev' '$RSHOT'
-grep -E 'Reloaded .* in |reload.*(failed|rejected)|^Error|Exception' '$RLOG' | tail -2")
+if [ \$n -gt \$n0 ]; then grep -E '$WPAT' '$RLOG' | tail -n \$((n-n0)); else echo 'no answer from flutter after ${RELOAD_TMO:-60}s'; fi")
     if printf '%s\n' "$out" | grep -qx RUN-GONE; then
       echo "the run on $dev has gone. Last of its log:"
       printf '%s\n' "$out" | grep -vx RUN-GONE

@@ -102,9 +102,10 @@ Each item's status was checked against 1.0.0 on 9 Nov 2026.
 
 13. **Reading `flutter run`'s exceptions back** into the conversation rather
     than just the reload line, so a save that throws is visible immediately.
-    Status: **PARTLY DONE.** After each reload `watch.sh` prints the last two
-    log lines matching `Reloaded`, `reload failed/rejected`, `Error` or
-    `Exception`; the exception text itself is not read back.
+    Status: **PARTLY DONE.** After each reload `watch.sh` prints the log
+    lines matching `Reloaded`, `reload failed/rejected`, `Error` or
+    `Exception` that this reload added; the exception text itself is not
+    read back.
 
 15. **~~`--flavor` splice position breaks device selection~~ — fixed.**
     `cmd[3:3]` in `frun.py:55` inserted `--flavor dev` between `-d` and the
@@ -215,27 +216,44 @@ Each item's status was checked against 1.0.0 on 9 Nov 2026.
     Status: **OPEN.** Raised 11 Nov 2026 from the hugoboss-flutter-runner
     session's report.
 
-20. **Nothing but the ssh transport has run end to end.** `README.md` says
-    `TRANSPORT` is read; only `ssh` to the Mac has been driven through start,
-    reload, watch and stop. On 11 Nov 2026 a run with `TRANSPORT=bridge`,
-    `PLATFORM=android`, a throwaway `flutter create` app in the scratchpad
-    and the `Pixel_6_Pro_API_34` emulator on this machine got as far as:
-    app created, emulator booted (`emulator-5554`), `frun.py` launched and
-    `flutter run -d emulator-5554 -t lib/main.dart` running. The first
-    Gradle `assembleDebug` then wrote nothing to the project after 17:43
-    (started 17:33), and at 17:48 the run was killed: `frun.py`, flutter,
-    the Gradle daemon and the emulator stopped, the app deleted, the bridge
-    stopped. Why Gradle stalled was not found — the daemon's own log stops
-    once it hands its output to flutter, which shows only a spinner, and
-    the daemon had no proxy settings.
+20. **Nothing but the ssh transport had run end to end.** On 12 Nov 2026
+    `test/manual/android-bridge.sh` passed 10 of 10 with `TRANSPORT=bridge`
+    (from inside the sandbox) and again with `TRANSPORT=local` (in a
+    terminal, sandbox off): a throwaway `flutter create` app, the
+    `Pixel_6_Pro_API_34` emulator on this machine, then start without
+    `--build`, `describe` deciding unflavoured and `lib/main.dart`, reload,
+    restart, status, one save through `watch.sh` with a PNG screenshot, and
+    stop with nothing left running.
 
-    Found and fixed on the way, both in the local tests: `start.sh` read
-    `installed-info`'s exit status, and the Android module exits 0 when the
-    app is not installed, so every Android start would have stopped with
-    "already installed"; and the bridge runs each request under `timeout`,
-    which kills its process group, so `frun.py` launched with `nohup` alone
-    would have died a call or two later — it is now started under `setsid`
-    where there is one.
+    Four things stood in the way, found on the way there:
+
+    - *The Gradle "stall" of 11 Nov was the disk.* The AVD, the Android SDK
+      and the Gradle home (`/mnt/sda/User/Programs/.gradle`) are all on
+      `/dev/sda`, a spinning disk. A cold-booting emulator kept it saturated
+      (I/O pressure 64% full, 14 requests queued, about 40 MB per 10 s of
+      random I/O from qemu), so the Gradle client took three minutes just to
+      open its own jars, and a cold `build apk` beside the emulator was
+      killed at 1500 s while still merging dex. With no emulator running the
+      same cold build, x86_64 only, took 90 s. The check now builds first
+      and boots after, and `start.sh`'s build is incremental (43–62 s up).
+      Nothing in this skill changed for it; a user on that disk hits the
+      same wait on any first Android build beside a booting emulator.
+    - *The bridge was stopped by another session.* `maestro-drive` 2.2.0 kept
+      the running helper in `/tmp/claude-<uid>/.maestro-bridge`, shared by
+      every session, so any session's SessionEnd hook stopped this one's
+      helper (10:45:07, when an oneiota-products-rn session ended), and every
+      later call hung. Fixed in `maestro-drive` 2.2.1: one record per
+      Claude session, and the helper records its owner. The check now fails
+      at once, rather than hanging, if the bridge goes.
+    - *The app was still installed from 11 Nov.* The emulator keeps its data
+      across boots, so `start.sh` rightly stopped at "already installed";
+      the check now uninstalls the probe after boot and in cleanup.
+    - *`reload.sh restart` read the log too early.* It slept a fixed 4 s;
+      a hot restart on the emulator took 4.45 s, so it showed the previous
+      reload's line. `reload.sh` and `watch.sh` now count flutter's result
+      lines before sending the key and wait (up to `RELOAD_TMO`, 60 s) for
+      a new one, printing only that. `test/run-tests.sh` covers it with a
+      fake restart that takes 5 s.
 
     Also found: hugoboss-flutter-runner cannot be the Android test bed. Its
     Android build has no product flavours (`applicationId
@@ -243,13 +261,7 @@ Each item's status was checked against 1.0.0 on 9 Nov 2026.
     decides `dev` from the iOS project, so 2.0 would pass `--flavor dev` to
     an Android build that has none. That is `maestro-drive`'s flavour rule
     (iOS evidence only), not this skill's.
-
-    *Next:* rerun with `flutter run -v` in `frun.py`'s command (or Gradle's
-    `--info` through `ANDROID_*` settings) so the build says what it waits
-    on; the check script is `test/manual/android-bridge.sh` (its paths are
-    this machine's, and its bridge directory is the 11 Nov session's).
-    `TRANSPORT=local` has never run.
-    Status: **OPEN.**
+    Status: **DONE in 2.0, not released.**
 
 ## Scope
 

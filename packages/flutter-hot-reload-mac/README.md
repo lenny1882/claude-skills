@@ -154,16 +154,16 @@ variable listed above. Then, the same day and Mac:
   skill, and a missing profile stopped it. The Mac's branch was reset to where
   it was.
 
-**Only the ssh transport has run end to end.** `TRANSPORT=bridge` with an
-Android emulator on this machine was started on 11 Nov 2026 and stopped
-unfinished: a `flutter create` app was made and `Pixel_6_Pro_API_34` booted
-through `maestro-drive`'s bridge, then the first Gradle `assembleDebug` showed
-no progress for over ten minutes and the run was killed. It found two faults
-on the way, both fixed and covered by the local tests: the Android
-`installed-info` exits 0 whether or not the app is installed, so `start.sh`
-now reads its output, not its status; and the bridge runs each request under
-`timeout`, which kills its process group, so `frun.py` is now started under
-`setsid` where there is one. `TRANSPORT=local` has not run at all.
+**Android on this machine, 12 Nov 2026**, `TRANSPORT=bridge` from inside the
+sandbox and `TRANSPORT=local` from a terminal, each 10 of 10: a `flutter
+create` app on the `Pixel_6_Pro_API_34` emulator came up without `--build`
+(43 s over the bridge, 53 s local), `describe` decided unflavoured and
+`lib/main.dart`, reload (162 and 164 ms), restart (1,237 and 1,206 ms), status,
+one save through `watch.sh` with a screenshot, and stop. The first Gradle
+build there needs the disk to itself: beside a cold-booting emulator on the
+same spinning disk it took over 25 minutes, alone 90 s. The bridge needs
+`maestro-drive` 2.2.1 or later; 2.2.0 let any session's end stop another
+session's bridge.
 
 The scripts behind every check above are in `test/manual/`.
 

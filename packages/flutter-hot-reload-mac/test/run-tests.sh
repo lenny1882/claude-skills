@@ -98,7 +98,7 @@ echo "Flutter run key commands."
 while IFS= read -r -n1 c; do
   case $c in
     r) echo "Reloaded 1 of 1 libraries in 312ms" ;;
-    R) echo "Restarted application in 900ms" ;;
+    R) sleep 5; echo "Restarted application in 5000ms" ;;   # longer than the 4s reload.sh once slept
     q) echo "Application finished."; exit 0 ;;
   esac
 done
@@ -244,7 +244,10 @@ FAKE_INSTALLED=1 st start; rc=$?
 
 echo "reload.sh and status.sh"
 st reload; grep -q "Reloaded 1 of 1 libraries" "$TMP/out" && ok "r reloads" || no "r reloads" "$(cat "$TMP/out")"
-st reload restart; grep -q "Restarted application" "$TMP/out" && ok "restart sends R" || no "restart sends R" "$(cat "$TMP/out")"
+st reload restart; grep -q "Restarted application" "$TMP/out" && ! grep -q Reloaded "$TMP/out" \
+  && ok "restart waits for its own answer, past 4s" || no "restart waits for its own answer, past 4s" "$(cat "$TMP/out")"
+st reload; grep -q "Reloaded 1 of 1" "$TMP/out" && ! grep -q Restarted "$TMP/out" \
+  && ok "and the next reload shows only its own line" || no "and the next reload shows only its own line" "$(cat "$TMP/out")"
 DEV=SIM-Z st reload; rc=$?
 [ $rc = 1 ] && grep -q "no run is listening on SIM-Z" "$TMP/out" && ok "a device with no run says so" || no "a device with no run says so" "rc=$rc $(cat "$TMP/out")"
 st status
