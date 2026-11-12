@@ -114,3 +114,50 @@ _alive() {  # _alive <udid>
   _paths "$1"
   _ssh "[ -r '$RPID' ] && read p f r < '$RPID' && kill -0 \"\$p\" 2>/dev/null && echo \"\$p \$f \$r\""
 }
+
+# What flutter prints once it has answered a key. The wait is for one of these
+# and never for an error line: the app's own output can say "Exception" at any
+# time, and a compile error on reload ends in "Try again after fixing", not in a
+# "Reloaded" line.
+RESULT_PAT='Reloaded .* in |Restarted application|(reload|restart).*(failed|rejected)|Try again after fixing|Application finished'
+# A remote pipe stage that takes flutter's terminal codes out of log text. A
+# carriage return at a line's end goes; one inside a line becomes a line break,
+# because flutter's spinner redraws "Performing hot reload..." and then writes
+# the next line of output after a carriage return on the same line, and that is
+# where every compile error and exception header lands. Colour and cursor codes
+# go only with their escape in front, so "[frun]" survives; then any stray
+# escape or backspace. One awk, which macOS's awk and gawk both run alike.
+CLEAN="awk '{ sub(/\\r\$/, \"\"); gsub(/\\033\\[[0-9;?]*[A-Za-z]/, \"\"); gsub(/\\r/, \"\\n\"); gsub(/[\\033\\010]/, \"\"); print }'"
+# Where an error starts in what a key added to the log (BACKLOG item 13).
+ERROR_PAT='EXCEPTION CAUGHT BY|Another exception was thrown|Unhandled Exception|: Error: |^Error'
+
+# _key_script <key> [after] — the remote shell for one key: send it to this
+# device's fifo, wait (up to RELOAD_TMO, 60 s) for flutter's answer, wait
+# RELOAD_SETTLE (1 s) more for what the first frame after it throws, run
+# <after> (watch.sh's screenshot), then print the answer and any error the key
+# added to the log, up to RELOAD_ERR_LINES (40) lines of it. Exits 1 when
+# flutter never answered. Call _paths first.
+_key_script() {
+  local key=$1 after=${2:-:} tmo=${RELOAD_TMO:-60}
+  cat <<EOF
+c0=\$(wc -c < '$RLOG' 2>/dev/null | tr -d ' '); c0=\${c0:-0}
+n0=\$(grep -cE '$RESULT_PAT' '$RLOG' 2>/dev/null); n0=\${n0:-0}
+printf '%s' '$key' > '$RFIFO'
+i=0; n=\$n0
+while [ \$n -le \$n0 ] && [ \$i -lt $tmo ]; do
+  sleep 1; i=\$((i+1)); n=\$(grep -cE '$RESULT_PAT' '$RLOG' 2>/dev/null); n=\${n:-0}
+done
+[ \$n -gt \$n0 ] && sleep ${RELOAD_SETTLE:-1}
+$after
+new=\$(tail -c +\$((c0+1)) '$RLOG' | $CLEAN)
+rc=0
+if [ \$n -gt \$n0 ]; then printf '%s\n' "\$new" | grep -E '$RESULT_PAT' | tail -n \$((n-n0))
+else echo 'no answer from flutter after ${tmo}s. Last of its log:'; tail -5 '$RLOG' | $CLEAN; rc=1; fi
+printf '%s\n' "\$new" | awk -v max=${RELOAD_ERR_LINES:-40} -v lf='$RLOG' '
+  /$ERROR_PAT/ { if (!on) print "error from this key:"; on=1 }
+  on && /^(Performing hot|Reloaded .* in |Restarted application|Try again after fixing)/ { next }
+  on { c++; if (c <= max) print }
+  END { if (c > max) print "... " c-max " more lines in " lf }'
+exit \$rc
+EOF
+}

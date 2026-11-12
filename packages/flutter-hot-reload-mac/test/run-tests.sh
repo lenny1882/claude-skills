@@ -100,6 +100,26 @@ while IFS= read -r -n1 c; do
     r) echo "Reloaded 1 of 1 libraries in 312ms" ;;
     R) sleep 5; echo "Restarted application in 5000ms" ;;   # longer than the 4s reload.sh once slept
     q) echo "Application finished."; exit 0 ;;
+    # A reload whose first frame throws, its header coloured as flutter colours it.
+    # As real flutter writes it: the spinner's line, a carriage return, then the header.
+    e) printf 'Performing hot reload...   |\r\033[K\033[1m══╡ EXCEPTION CAUGHT BY WIDGETS LIBRARY ╞════\033[0m\n'
+       echo "The following _Exception was thrown building Banner:"
+       echo "Exception: banner text is null"
+       echo "════════════════════════════════════════"
+       echo "Reloaded 1 of 1 libraries in 298ms" ;;
+    # A reload that does not compile: flutter prints no "Reloaded" line at all.
+    # Each error line after the spinner on the same line, in red, as on the Mac.
+    c) printf 'Performing hot reload...   /\r\033[K\033[31mlib/main.dart:3:1: Error: Expected an identifier.\033[39m\n'
+       printf 'Performing hot reload...   -\r\033[K\033[31mint fhrmProbe = ;\033[39m\n'
+       printf '\033[1mTry again after fixing the above error(s).\033[22m\n' ;;
+    # The app's own output mentions an exception before the reload answers.
+    x) echo "flutter: caught Exception in a retry, carrying on"; sleep 2
+       echo "Reloaded 1 of 1 libraries in 2001ms" ;;
+    # A key flutter never answers, leaving a coloured spinner line in the log.
+    n) printf 'Performing hot reload...  \033[1m|\010/\r\033[K\n' ;;
+    # A long error: more lines than reload.sh prints.
+    l) echo "Unhandled Exception: deep"; for i in $(seq 1 50); do echo "#$i frame"; done
+       echo "Reloaded 1 of 1 libraries in 310ms" ;;
   esac
 done
 SH
@@ -248,6 +268,27 @@ st reload restart; grep -q "Restarted application" "$TMP/out" && ! grep -q Reloa
   && ok "restart waits for its own answer, past 4s" || no "restart waits for its own answer, past 4s" "$(cat "$TMP/out")"
 st reload; grep -q "Reloaded 1 of 1" "$TMP/out" && ! grep -q Restarted "$TMP/out" \
   && ok "and the next reload shows only its own line" || no "and the next reload shows only its own line" "$(cat "$TMP/out")"
+st reload; ! grep -q "error from this key" "$TMP/out" \
+  && ok "a clean reload shows no error" || no "a clean reload shows no error" "$(cat "$TMP/out")"
+st reload e
+grep -q "Reloaded 1 of 1 libraries in 298ms" "$TMP/out" && grep -q "error from this key:" "$TMP/out" \
+  && grep -q "^══╡ EXCEPTION CAUGHT BY WIDGETS LIBRARY" "$TMP/out" && grep -q "Exception: banner text is null" "$TMP/out" \
+  && ok "an exception the reload threw is read back, with its text" || no "an exception the reload threw is read back" "$(cat "$TMP/out")"
+! grep -q $'\033' "$TMP/out" && ! grep -q $'\r' "$TMP/out" \
+  && ok "without colour codes or carriage returns" || no "without colour codes or carriage returns" "$(cat -v "$TMP/out")"
+s0=$SECONDS; st reload c; rc=$?
+[ $rc = 0 ] && [ $((SECONDS - s0)) -lt 10 ] && grep -q "Try again after fixing" "$TMP/out" && grep -qx "lib/main.dart:3:1: Error: Expected an identifier." "$TMP/out" \
+  && grep -qx "int fhrmProbe = ;" "$TMP/out" \
+  && ok "a compile error answers at once, with its error" || no "a compile error answers at once" "rc=$rc $((SECONDS - s0))s $(cat "$TMP/out")"
+st reload x
+grep -q "in 2001ms" "$TMP/out" && ok "the app's own 'Exception' line does not end the wait early" || no "the app's own 'Exception' line does not end the wait early" "$(cat "$TMP/out")"
+RELOAD_ERR_LINES=5 st reload l
+[ "$(grep -c ' frame$' "$TMP/out")" = 4 ] && grep -q "46 more lines in $FAKE_RDIR/frun-SIM-A.log" "$TMP/out" \
+  && ok "a long error is cut at RELOAD_ERR_LINES, naming the log" || no "a long error is cut at RELOAD_ERR_LINES" "$(cat "$TMP/out")"
+RELOAD_TMO=2 st reload n; rc=$?
+[ $rc = 1 ] && grep -q "no answer from flutter after 2s" "$TMP/out" && grep -q "Performing hot reload" "$TMP/out" \
+  && ! grep -q $'[\033\r\010]' "$TMP/out" \
+  && ok "no answer: exit 1 with the last of the log, its terminal codes taken out" || no "no answer: the last of the log, cleaned" "rc=$rc $(cat -v "$TMP/out")"
 DEV=SIM-Z st reload; rc=$?
 [ $rc = 1 ] && grep -q "no run is listening on SIM-Z" "$TMP/out" && ok "a device with no run says so" || no "a device with no run says so" "rc=$rc $(cat "$TMP/out")"
 st status
@@ -263,6 +304,19 @@ grep -q "rc=0" "$TMP/watch.out" && grep -q "Reloaded" "$TMP/watch.out" && grep -
   && ok "one save is synced, reloaded, and the watcher exits" || no "one save is synced, reloaded, and the watcher exits" "$(cat "$TMP/watch.out")"
 shot=$(sed -n 's/^SHOT: //p' "$TMP/watch.out")
 [ -n "$shot" ] && [ "$(cat "$shot" 2>/dev/null)" = PNG ] && ok "and the screenshot is fetched" || no "and the screenshot is fetched" "shot=$shot"
+
+read -r _ wf _ < "$FAKE_RDIR/frun-SIM-A.pid"
+( cd "$P" && WATCH_ALIVE=1 timeout 30 bash "$BIN/watch.sh" > "$TMP/watch.out" 2>&1; echo "rc=$?" >> "$TMP/watch.out" ) &
+wpid=$!
+sleep 1.5; kill "$wf"; s0=$SECONDS
+wait "$wpid"
+grep -q "rc=2" "$TMP/watch.out" && grep -q "has gone" "$TMP/watch.out" && grep -q "^\[frun\] flutter run exited" "$TMP/watch.out" \
+  && [ $((SECONDS - s0)) -lt 6 ] \
+  && ok "a run that dies between saves is reported within WATCH_ALIVE, with its log" \
+  || no "a run that dies between saves is reported within WATCH_ALIVE" "$((SECONDS - s0))s $(cat "$TMP/watch.out")"
+( cd "$P" && WATCH_ALIVE=0 timeout 4 bash "$BIN/watch.sh" ) > /dev/null 2>&1; rc=$?
+[ $rc = 2 ] && ok "and a watcher started after it says there is no run" || no "and a watcher started after it says there is no run" "rc=$rc"
+st start --build
 
 echo "two devices, one checkout"
 DEV=SIM-B FAKE_INSTALLED=0 st start --build; rc=$?

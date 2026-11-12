@@ -81,6 +81,14 @@ Each item's status was checked against 1.0.0 on 9 Nov 2026, and against
     gone; `SKILL.md` says not to relaunch the watcher then. Between saves
     nothing checks, so a death is noticed at the next save, not when it
     happens.
+    **DONE on `main`, not released.** Between saves `watch.sh` checks the run
+    every `WATCH_ALIVE` seconds (30 by default, 0 for never) in one round trip
+    and exits 2 with the end of the log when it has gone. A failed ssh is not
+    read as a dead run. Tested against the stand-in: flutter killed with no
+    save, reported in under 6 s with `WATCH_ALIVE=1`. On the Mac, 12 Nov 2026
+    (`test/manual/mac-errors.sh`, mac-home, iPhone 16 Pro,
+    hugoboss-flutter-runner): flutter killed with no save, exit 2 two seconds
+    later with `WATCH_ALIVE=5`.
 
 ## Wanted
 
@@ -108,6 +116,32 @@ Each item's status was checked against 1.0.0 on 9 Nov 2026, and against
     lines matching `Reloaded`, `reload failed/rejected`, `Error` or
     `Exception` that this reload added; the exception text itself is not
     read back.
+    **DONE on `main`, not released.** `reload.sh` and `watch.sh` share one
+    remote script (`_key_script` in `bin/lib.sh`). It notes the log's length
+    before the key, waits for flutter's answer and `RELOAD_SETTLE` (1 s) more,
+    then prints everything from the first error line the key added (`EXCEPTION
+    CAUGHT BY`, `Another exception was thrown`, `Unhandled Exception`,
+    `: Error: `), without colour codes, up to `RELOAD_ERR_LINES` (40). Two
+    faults found on the way, both fixed: a reload that did not compile has no
+    "Reloaded" line, so the wait ran the full 60 s (it now also ends on "Try
+    again after fixing"); and `watch.sh`'s wait ended on any line with
+    "Exception" in it, the app's own output included.
+    On the Mac, 12 Nov 2026 (`test/manual/mac-errors.sh`, 9 of 9 on the third
+    run): a save that throws in a build showed its reload line, then the
+    `EXCEPTION CAUGHT BY WIDGETS LIBRARY` block with the exception's text and
+    stack; a save that does not compile answered in 5 s with the error, the
+    source line and the caret; the next clean save showed no error. The first
+    two runs found three faults, all fixed: flutter writes each error line
+    after a carriage return on its spinner's line, so deleting carriage
+    returns hid the compile error and the exception header behind
+    "Performing hot reload..." (a carriage return inside a line is now a line
+    break); the colour-code pattern, applied after the escapes were gone,
+    cut `[frun]` to `run]` (codes now go only with their escape, in one `awk`
+    that macOS's awk and gawk run alike); and the "no answer" and "run has
+    gone" log tails kept their terminal codes. A throw above `MaterialApp` is
+    no test of this: the app's own error widget fails for want of a
+    `Directionality`, and flutter logged 19,312 lines and took 230 s to
+    answer the reload.
 
 15. **~~`--flavor` splice position breaks device selection~~ — fixed.**
     `cmd[3:3]` in `frun.py:55` inserted `--flavor dev` between `-d` and the
@@ -148,6 +182,25 @@ Each item's status was checked against 1.0.0 on 9 Nov 2026, and against
     driving is `maestro-drive`'s and rebuilding is `--build`, and `SKILL.md`
     says which to choose. It fires at the first command, not before the skill
     is picked.
+    **DEFERRED 12 Nov 2026.** Four ways forward were on the table:
+    - *A blocking hook.* A `PreToolUse` hook on the Skill call for this skill
+      reads the user's last message and stops the call, naming `maestro-drive`,
+      when it asks to drive (tap, drive, test the UI, reproduce, step through)
+      and says nothing about building or watching changes. No Mac round trip.
+      Risk: a wrong block on a message that asks for both.
+    - *A one-off block.* As `maestro-drive`'s `hooks/gate-journey-first.sh`
+      does: block the first call in a session with exit 2, saying driving is
+      `maestro-drive`'s, and let a repeat through. A wrong block costs one
+      retry, so it needs no reading of the message.
+    - *A reminder hook.* Let the call through and add a note to the context.
+      Never blocks wrongly; it is more prose of the kind that failed four
+      times in one day.
+    - *Leave it.* Close the item on `start.sh`'s exit 3.
+    Found while looking: `maestro-drive`'s description stopped naming this
+    skill on 26 Oct 2026 (`9512ae4`, a README commit tied to no item), when
+    "does NOT build or launch from source (that is flutter-hot-reload-mac)"
+    became "builds and installs it only when asked". `maestro-drive` item 82
+    closed by handing the fix here and changed nothing there.
 
 17. **~~An empty `FLAVOR` cannot turn the flavour off~~ — fixed in 1.0.0.**
     `SKILL.md` says `FLAVOR` is "empty for an unflavoured build", but the

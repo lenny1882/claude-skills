@@ -31,8 +31,8 @@ No script in `skill/bin/` carries an execute bit — SKILL.md calls them with
 | `skill/SKILL.md` | the settings, what to do when `start.sh` stops, the watch-loop protocol, and the five things that cost a day |
 | `skill/bin/lib.sh` | loads `maestro-drive` and checks its library version; this skill's settings, per-device paths, the sync |
 | `skill/bin/start.sh` | the guards, then push the branch, check it out, sync, launch, wait for the app |
-| `skill/bin/watch.sh` | one save → sync → reload → screenshot → exit (`--loop` to stay up); exits 2 when the run has gone |
-| `skill/bin/reload.sh` | `r` / `restart` / `q` by hand |
+| `skill/bin/watch.sh` | one save → sync → reload → screenshot → exit (`--loop` to stay up); exits 2 when the run has gone, checked between saves too |
+| `skill/bin/reload.sh` | `r` / `restart` / `q` by hand; shows flutter's answer and any error the key threw |
 | `skill/bin/status.sh` | the Mac checkout's branch, and every run: device, checkout, last reloads |
 | `skill/bin/stop.sh` | stop this device's run, flutter included, and clear its files |
 | `skill/remote/frun.py` | the pty supervisor that makes hot reload reachable at all |
@@ -172,6 +172,21 @@ its own line, one watcher save with a screenshot, the watcher's exit 2, and
 `PROFILE` — and `mac-two-devices.sh` 6 of 6, reloads of 205 and 150 ms. The
 Android check over the bridge ran once more on `maestro-drive` 2.2.1, 10 of 10,
 the helper recording this session as its owner.
+
+**Errors and a dead run, 12 Nov 2026** (BACKLOG items 10 and 13, on `main`,
+not released), against mac-home and the iPhone 16 Pro simulator:
+`mac-errors.sh` 9 of 9 on its third run. A save that throws in a build
+showed its reload line (419 ms), then flutter's `EXCEPTION CAUGHT BY WIDGETS
+LIBRARY` header, the exception's text and its stack; a save that does not
+compile answered in 5 s with the error, the source line and the caret; the
+next clean save showed no error; flutter killed with no save made the
+watcher exit 2 two seconds later. The first two runs found three faults in
+how the log is cleaned, all fixed (BACKLOG item 13). After those fixes, on
+the same code: `mac-guards.sh` 6 of 6, `mac-two-devices.sh` 6 of 6 (reloads
+of 165 and 154 ms), `mac-remaining.sh` 7 of 7 (reload 162 ms, restart 396 ms,
+a watcher save 310 ms), and on this machine `android-bridge.sh` with
+`TRANSPORT=local` 10 of 10 (reload 155 ms, restart 3.2 s, a watcher save
+522 ms).
 
 The scripts behind every check above are in `test/manual/`.
 

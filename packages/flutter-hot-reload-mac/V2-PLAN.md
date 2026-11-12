@@ -173,6 +173,11 @@ Sourcing runs no remote commands. It does `mkdir -p "$LDIR"`, exports every
 | 13 | exception text not read back | carried |
 | 16 | wrong skill picked to drive | carried, with the check in step 5 |
 
+Since, as of 12 Nov 2026 (`BACKLOG.md` has each): 2 done in 2.0.0, where
+`watch.sh`'s detection runs end to end in the suite; 10 and 13 done on
+`main`, not released, and run on the Mac by `test/manual/mac-errors.sh`; 16
+deferred. 5, 6, 7 and 9 are still open.
+
 ### Needed in maestro-drive first
 
 Sent 11 Nov 2026 to the `maestro-drive-f2` session. All four are on

@@ -31,6 +31,10 @@ This skill's own settings, in the same conf or exported for one call:
 | `WATCH_DIR` | `lib` | synced and watched, relative to both checkouts |
 | `BUILD_FLAVOR` | worked out | `maestro-drive`'s own override, read by both skills |
 | `BUILD_TARGET` | worked out | the same |
+| `WATCH_ALIVE` | `30` | seconds between the watcher's checks that the run is alive; `0` for none |
+| `RELOAD_TMO` | `60` | seconds to wait for flutter's answer to a key |
+| `RELOAD_SETTLE` | `1` | seconds to wait after the answer, for what the first frame throws |
+| `RELOAD_ERR_LINES` | `40` | lines of an error to show; the rest stay in the log |
 
 1.0's `FLAVOR` and `TARGET` are still read, with a warning to rename them;
 `FLUTTER_BIN` is ignored.
@@ -93,12 +97,16 @@ thing that lets Claude put the screenshot in front of the user. So the cycle is:
 
 1. `bash $SKILL/bin/watch.sh` with `run_in_background: true`.
 2. On the task notification, `cat` the output file. It ends with `SHOT: <path>`
-   and the reload line from the Mac's log.
+   and the reload line from the Mac's log. When the reload threw or did not
+   compile, an `error from this key:` block follows the reload line: put the
+   error in front of the user with the screenshot, as the result of that save.
 3. `SendUserFile` that path, captioned with the reload time.
 4. Relaunch `bin/watch.sh` in the background immediately.
 
 If it exits 2, the run has gone — `flutter run` died or was stopped — and the
-output ends with the last of its log. Say so, and do not relaunch the watcher
+output ends with the last of its log. The watcher checks every `WATCH_ALIVE`
+seconds between saves as well as before each reload, so this can arrive with
+no save behind it. Say so, and do not relaunch the watcher
 until `start.sh` has brought the run back.
 
 Tell the user once that a save landing between steps 3 and 4 is missed and they
