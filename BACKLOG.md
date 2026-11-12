@@ -144,3 +144,49 @@ what happens today, what each option changes. Built as `/one-by-one`, with
 
 **Why.** A list of several questions or points answered together gets each one
 too briefly; taking them separately gives each one the detail it needs.
+
+## 6. A skill that keeps a project's backlog, todo, completed, decisions and answers docs — raised 12 Nov 2026
+
+**What.** A skill that maintains a set of tracking docs in any project, as
+the conversation goes:
+
+1. **Adding an item.** Adds to the backlog or todo doc, and creates the doc
+   if it does not exist. Numbers each new item one higher than the highest
+   number already used in that doc, counting items that have moved out. Each
+   item gets requirements, acceptance criteria and a definition of done.
+2. **Keeping items current from chat.** When a test case comes up in general
+   conversation, the skill adds it to the acceptance criteria of the item it
+   belongs to, or updates that item's status when the test has been run.
+3. **Moving finished items.** When an item meets its definition of done, it
+   is moved out of the backlog or todo doc into a completed doc, keeping its
+   number, with the date and what closed it.
+4. **A decisions and assumptions log.** Records each decision and each
+   assumption, with its date, what it covers and the item it belongs to.
+5. **An answers log.** Records each question the user answered, with the
+   answer, so it is not asked again.
+
+**Why.** The backlogs in this repo are written by hand, each in its own
+layout. They drift: on 12 Nov 2026 nine items in `flutter-hot-reload-mac`'s
+backlog still said "not released" after 2.0.0 had been tagged and installed.
+Finished items stay in the backlog with a DONE mark, and none of the items
+has acceptance criteria or a definition of done. Decisions, such as the
+branch handling in `flutter-hot-reload-mac` item 14, are buried in the item
+text, with no log of them anywhere.
+
+**Open question: where it lives.** It could be a package here (a skill plus
+any hooks, as `mate` ships its hook) or a repo of its own made with
+`claude-package-kit`. Recommended: a package here. Every other skill is
+here, and the release workflow already handles one package per tag. Making
+it a repo of its own would only pay off if it grew past a skill, for example
+a CLI that other tools call.
+
+**To settle before building.**
+- File names and where they go: the repo root, or beside each package as
+  this repo's `BACKLOG.md` files are.
+- Whether it migrates existing backlogs, such as this file's DONE items,
+  into the new layout.
+- What starts an update from chat (the user asks, or a hook spots a test
+  result or a decision), since unasked writes break "No starting work
+  unless asked" in `~/.claude/CLAUDE.md`.
+- How it sits beside GSD's `add-todo`, `add-backlog` and `note` in
+  repositories with `.planning/`, where every change goes through GSD.
