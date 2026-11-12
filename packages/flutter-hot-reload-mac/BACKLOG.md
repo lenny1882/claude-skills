@@ -1,7 +1,8 @@
 # Backlog — flutter-hot-reload-mac
 
 Opened 25 Aug 2026, when the package was moved here from `~/.claude/skills`.
-Each item's status was checked against 1.0.0 on 9 Nov 2026.
+Each item's status was checked against 1.0.0 on 9 Nov 2026, and against
+2.0.0 on 12 Nov 2026.
 
 ## Packaging
 
@@ -24,7 +25,7 @@ Each item's status was checked against 1.0.0 on 9 Nov 2026.
    first-answer cases, `frun.py`'s command assembly with a fake flutter, and
    `reload.sh`, against an ssh stub. Still untested: `watch.sh`'s `find -newer`
    detection, which is parse-checked only.
-   **DONE in 2.0, not released.** 84 checks; every script runs end to end
+   **DONE in 2.0.0 (12 Nov 2026).** 84 checks; every script runs end to end
    against a stand-in `maestro-drive` in local transport and a fake flutter,
    `watch.sh`'s detection included (one save → sync → reload → screenshot).
    Since run against the Mac and on Android: the scripts in `test/manual/`
@@ -64,7 +65,7 @@ Each item's status was checked against 1.0.0 on 9 Nov 2026.
 8. **One simulator.** `DEV` picks a single device; the iPad booted alongside it
    is ignored. Reloading both would mean two `flutter run`s, so two fifos and
    two logs.
-   Status: **DONE in 2.0, not released.** Every remote path is per device,
+   Status: **DONE in 2.0.0 (12 Nov 2026).** Every remote path is per device,
    `$RDIR/frun-<udid>.{in,log,pid}`, and `DEV=<udid>` picks one; a run per
    device, two at once tested. Each device's run needs its own `REPO`.
 
@@ -75,7 +76,7 @@ Each item's status was checked against 1.0.0 on 9 Nov 2026.
 10. **Nothing notices when `flutter run` dies.** The log gets
     `[frun] flutter run exited`; the watcher keeps syncing into a dead app and
     the screenshots simply stop changing.
-    Status: **MOSTLY DONE in 2.0, not released.** `watch.sh` checks the run's
+    Status: **MOSTLY DONE in 2.0.0 (12 Nov 2026).** `watch.sh` checks the run's
     PID before each reload and exits 2 with the last of the log when it has
     gone; `SKILL.md` says not to relaunch the watcher then. Between saves
     nothing checks, so a death is noticed at the next save, not when it
@@ -90,13 +91,13 @@ Each item's status was checked against 1.0.0 on 9 Nov 2026.
     are read from the per-project conf, now `.maestro-drive.conf`
     (`bin/lib.sh:38`), and their defaults are listed in `SKILL.md`. No `init.sh`
     writes them.
-    **DONE in 2.0, not released**, by removing them: the SDK, flavour and
+    **DONE in 2.0.0 (12 Nov 2026)**, by removing them: the SDK, flavour and
     entry file are worked out by `maestro-drive`, whose `bin/init.sh` writes
     the conf; `WATCH_DIR` is the one setting left, defaulting to `lib`.
 
 12. **Cropping to a region** for UI work on one widget — the whole 1206×2622
     frame is mostly chrome when the change is a banner.
-    Status: **DONE in 2.0, not released**, by `maestro-drive`: its
+    Status: **DONE in 2.0.0 (12 Nov 2026)**, by `maestro-drive`: its
     `bin/shot.sh --crop X,Y,W,H` and `bin/driver.sh shot` (crop to a named
     element). This skill's `shot.sh` went. `watch.sh`'s per-save screenshot is
     still the whole frame.
@@ -142,7 +143,7 @@ Each item's status was checked against 1.0.0 on 9 Nov 2026.
 
     Raised from `maestro-remote-mac` BACKLOG item 82 (17 Sep 2026), where the
     cost landed. The fix belongs here.
-    Status: **PARTLY DONE in 2.0, not released.** Not a hook: `start.sh` stops
+    Status: **PARTLY DONE in 2.0.0 (12 Nov 2026).** Not a hook: `start.sh` stops
     with exit 3 when `APP_ID` is already installed on the device, saying
     driving is `maestro-drive`'s and rebuilding is `--build`, and `SKILL.md`
     says which to choose. It fires at the first command, not before the skill
@@ -177,7 +178,7 @@ Each item's status was checked against 1.0.0 on 9 Nov 2026.
     Status: **OPEN.** Still true in 1.0.0: `start.sh:39` and `stop.sh:13` run
     the same `pkill`, and `bin/lib.sh:69-73` still fixes the `/tmp/frun.*`
     paths.
-    **DONE in 2.0, not released.** No `pkill`: `frun.py` writes
+    **DONE in 2.0.0 (12 Nov 2026).** No `pkill`: `frun.py` writes
     `$RDIR/frun-<udid>.pid` ("<frun pid> <flutter pid> <repo>"), and `stop.sh`
     and a restart kill that run only — frun.py's SIGTERM handler stops
     flutter's process group. Paths are per device. `start.sh` also refuses a
@@ -262,7 +263,7 @@ Each item's status was checked against 1.0.0 on 9 Nov 2026.
     decides `dev` from the iOS project, so 2.0 would pass `--flavor dev` to
     an Android build that has none. That is `maestro-drive`'s flavour rule
     (iOS evidence only), not this skill's.
-    Status: **DONE in 2.0, not released.**
+    Status: **DONE in 2.0.0 (12 Nov 2026).**
 
 ## Scope
 
@@ -307,7 +308,7 @@ Each item's status was checked against 1.0.0 on 9 Nov 2026.
     from another session) or when anything is uncommitted outside
     `WATCH_DIR` and the two lock files. Two branches at once means a second
     `REPO` through a conf profile, as `maestro-drive` documents.
-    Status: **BUILT 11 Nov 2026, not released.** `maestro-drive`'s four
+    Status: **DONE in 2.0.0, released 12 Nov 2026.** `maestro-drive`'s four
     changes are on its `main` (`2b6d703`), unreleased. 2.0 is on branch
     `flutter-hot-reload-mac-v2`: 84 tests against a stand-in `maestro-drive`
     pass, and the contract checks against its `main` pass. Releasing needs
@@ -327,6 +328,7 @@ Each item's status was checked against 1.0.0 on 9 Nov 2026.
     now run on the Mac. Then, also on the Mac, 5 of 5: a real fast-forward
     from a new local commit, one save through `watch.sh` since `c3ee011`,
     `watch.sh`'s exit 2 when the run dies under it, and `PROFILE` layering.
-    Left: merge, release 2.0.0, install it. The bridge and local transports
+    Merged to `main`, released as 2.0.0 and installed from its tarball
+    12 Nov 2026. The bridge and local transports
     are item 20, done 12 Nov 2026; the Mac checks were rerun that day after
     `reload.sh` and `watch.sh` began waiting for flutter's answer (88 tests).
