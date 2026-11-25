@@ -298,3 +298,23 @@ Seen failing first, each fault planted in a copy of the package, run with the re
 - An unusable answer treated as clean: both X1 (C4.2) checks failed.
 - The built-in public categories emptied: "categories in the prompt" failed.
 
+## 17. History — **DONE 25 Nov 2026** for E6, C6.0, C6.1, C6.5
+
+`git scrub history` lists every object reachable from any ref once (`git rev-list --all
+--objects`), reads the blobs through one `git cat-file --batch`, skips a blob with a NUL
+in its first 8,000 bytes, and checks every commit message line, author and committer.
+`--sweep` sends each distinct line to the model once. `test/history-tests.sh`: a value in
+a blob later deleted is found by `history` and not `tree`, a working-copy-only value by
+neither, a blob in three commits and two paths found once, a binary blob skipped, a
+message value and an author value found, no sweep unless asked, and each distinct line
+sent once. 148 passed, 1 failed, the one being the live sweep checks, left out of this run.
+
+Seen failing first, each fault planted in a copy of the package:
+- Reading every commit's tree instead of each blob once: C6.1 failed, and the
+  deleted-blob and message cases, since the fault returned before reading them; 145
+  passed and 4 failed.
+- Binary blobs not skipped: "a binary blob is skipped" failed.
+- Messages not read: "a message value" failed.
+A fault reading each blob once per path went unseen: `rev-list --objects` already gives
+each blob once, at its first path.
+

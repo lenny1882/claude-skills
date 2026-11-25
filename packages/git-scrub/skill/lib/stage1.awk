@@ -9,7 +9,7 @@
 #   6 msglines  message-line EREs (C7.5), used only when mode is message
 #   7 head      every tracked line at HEAD, for figures (E5)
 #   8 lines     where<TAB>text, the lines to check
-# Variables: mode (staged, message, tree, history, text, redact), figures (1 to check them).
+# Variables: mode (staged, message, tree, history, identity, text, redact), figures (1 to check them).
 # Output: where<TAB>category<TAB>matched text, one line per finding. In redact mode, each
 # line's text instead, with every value and label match replaced by [removed] (C4.1).
 
@@ -131,8 +131,9 @@ function check(where, text,   lt, i, v, p, k, s, best, pos, cands, a, L, m, re, 
     if (!(tolower(m) in allow)) out(where, "real value", m)
     pos = s + best[s]
   }
-  # Labels (C1.4): every match, as finditer gives them.
-  for (i = 1; i <= nl; i++) {
+  # Labels (C1.4): every match, as finditer gives them. Not on an identity line, which
+  # always holds an email address.
+  for (i = 1; i <= nl && mode != "identity"; i++) {
     re = lre[i]; IGNORECASE = lcase[i]; anchored = (re ~ /^\^/); pos = 1
     while (pos <= length(text) + 1) {
       sub_ = substr(text, pos)

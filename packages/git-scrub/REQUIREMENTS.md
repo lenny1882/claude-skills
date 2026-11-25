@@ -252,6 +252,9 @@ author and committer.
 *Acceptance: a value planted in a blob that was later deleted is found by `history` and not
 by `tree`; a value only in an uncommitted working-copy change is found by neither.*
 
+- **C6.0 Identities in history.** Each author and committer is checked against the values
+  and, where the repo names any, its identities (C2.2), but not the labels, since every
+  identity holds an email address.
 - **C6.1 History reads blobs once.** Each blob is read once through `git cat-file --batch`,
   however many paths and commits hold it.
 - **C6.2 `tree` reads the commit, not the working copy.** *Fixes the commit checker.*

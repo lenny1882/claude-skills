@@ -6,6 +6,9 @@
 #   git scrub push [TIP ARGS] check what a push sends: pre-push ref lines on stdin, or
 #                             TIP and rev-list ARGS naming the new commits
 #   git scrub tree [COMMIT]   check every line of every tracked file at COMMIT (HEAD)
+#   git scrub history [--sweep]  check every blob ever committed, every commit message,
+#                             author and committer; --sweep also sends each distinct line
+#                             to the model once
 #   git scrub text            check where<TAB>text lines on stdin
 #   git scrub enable          install the hooks in this repo, chained to its own
 #   git scrub disable         put the repo's hooks back as they were
@@ -131,6 +134,31 @@ tree_lines() { # COMMIT: every line of every tracked text file, read from the co
   # C6.3: paths whole, from NUL-separated output)
   git -c core.quotePath=false grep -I -n --null --full-name -e '' "$1" -- 2>/dev/null \
     | gawk -v c="${1:0:12}" 'BEGIN { FS = "\0" } { p = $1; sub(/^[^:]*:/, "", p); t = $3; for (i = 4; i <= NF; i++) t = t "\0" $i; print c " " p ":" $2 "\t" t }'
+}
+
+# C6.1: every blob reachable from any ref, read once through cat-file --batch, at the
+# first path it was seen under; binary blobs (a NUL in the first 8,000 bytes) skipped.
+history_lines() {
+  git rev-list --all --objects | gawk '{ s = $1; p = substr($0, 42); if (p != "" && !(s in seen)) { seen[s] = 1; print s "\t" p } }' > "$work/objs"
+  cut -f1 "$work/objs" | git cat-file --batch-check='%(objectname) %(objecttype)' | gawk '$2 == "blob" { print $1 }' > "$work/blobs"
+  git cat-file --batch < "$work/blobs" | LC_ALL=C gawk -v objs="$work/objs" '
+    BEGIN { while ((getline l < objs) > 0) { t = index(l, "\t"); path[substr(l, 1, t - 1)] = substr(l, t + 1) } }
+    function flush(   i) { if (!bin) for (i = 1; i <= n; i++) print path[sha] "@" substr(sha, 1, 8) ":" i "\t" L[i] }
+    want == 0 { sha = $1; size = $3 + 0; got = 0; n = 0; bin = 0; delete L; want = 1; if (size == 0) { getline; want = 0 } ; next }
+    {
+      if (got < size) { L[++n] = $0; if (got < 8000 && index($0, "\0")) bin = 1 }
+      got += length($0) + 1
+      if (got >= size + 1) { flush(); want = 0 }
+    }'
+  git log --all --format='%H%x00%B%x01' | gawk 'BEGIN { RS = "\001" } { sub(/^\n/, ""); t = index($0, "\0"); h = substr($0, 1, 8); n = split(substr($0, t + 1), L, "\n"); for (i = 1; i <= n; i++) if (!(i == n && L[i] == "")) print "commit " h ":" i "\t" L[i] }'
+}
+
+# E6: every author and committer, checked against the values (not the labels, since every
+# identity holds an email address) and, where the repo names any, the identities (C2.2).
+history_identities() {
+  git log --all --format='%H%x09%an <%ae>%x09%cn <%ce>' | gawk -F'\t' '{ h = substr($1, 1, 8); print "commit " h " author\t" $2; print "commit " h " committer\t" $3 }' > "$work/ids"
+  scan identity "$work/ids"
+  local c; for c in $(git rev-list --all); do identity "$c"; done
 }
 
 message_lines() { # FILE [PREFIX]
@@ -451,6 +479,12 @@ case $sub in
              gawk -v z="$z" '$2 != z { print $2 "\t" ($4 == z ? "--not --remotes" : "--not " $4) }' > "$work/refs"
            fi
            push_check ;;
+  history) cfg=$(config_dir) || exit 2; prepare; history_lines > "$work/lines"; scan history "$work/lines"; history_identities
+           if [ "${1:-}" = --sweep ] && [ ! -s "$work/found" ]; then   # C6.5: each distinct line once
+             gawk -F'\t' '!(substr($0, index($0, "\t") + 1) in seen) { seen[substr($0, index($0, "\t") + 1)] = 1; print }' "$work/lines" > "$work/distinct"
+             [ -s "$work/prompts" ] || [ "$words" != 1 ] || prompts > "$work/prompts"; sweep "$work/distinct"
+           fi
+           report history ;;
   hook-pre-commit)
            p=$(mark); rm -f "$p"; ( "$self" staged ) || exit $?
            cfg=$(config_dir) || exit 2; printf '%s\t-\t%s\n' "$(git write-tree)" "$(config_hash)" > "$p" ;;
@@ -461,5 +495,5 @@ case $sub in
   enable)  enable ;;
   disable) disable ;;
   id)      cfg=$(config_dir) || exit 2; printf '%s\t%s\n' "$(repo_id)" "$cfg" ;;
-  *)       sed -n '2,16s/^# \{0,1\}//p' "$self"; [ -z "$sub" ] || [ "$sub" = help ] || exit 2 ;;
+  *)       sed -n '2,/^set /{/^#/s/^# \{0,1\}//p}' "$self"; [ -z "$sub" ] || [ "$sub" = help ] || exit 2 ;;
 esac
