@@ -24,7 +24,7 @@ shipped without touching the rest.
 | [`mate`](packages/mate/) | `mate`, `bruv` or `dude` redoes the last answer that missed the point: it names the fault (tangent, overkill, technical, several in one) and fixes it |
 | [`compare`](packages/compare/) | `/compare` or `/side-by-side` lays things already in the conversation out as level columns, both sides verbatim, and names each difference |
 | [`one-by-one`](packages/one-by-one/) | `/one-by-one`, `/individually` or `/separately` goes through a list already given one item per reply, each in full, waiting for your answer before the next |
-| [`git-scrub`](packages/git-scrub/) | `git scrub` checks each commit, push and the whole history for names, ids, emails, your wording and other values kept in per-repo config outside the tree, with a model sweep for what patterns miss; `git scrub rewrite` replaces them through history after a bundle backup. **Not built yet**: requirements and backlog only |
+| [`git-scrub`](packages/git-scrub/) | `git scrub` checks each commit, push and the whole history for names, ids, emails, your wording and other values kept in per-repo config outside the tree, with a model sweep for what patterns miss; `git scrub rewrite` replaces them through history after a bundle backup; in a public repo, Claude is told the moment a tool call writes such a line |
 <!-- new-package.sh --monorepo adds a row above this line -->
 
 ## Install a package
