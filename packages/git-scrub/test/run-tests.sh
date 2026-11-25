@@ -47,6 +47,7 @@ chmod 755 "$TMP/fakebin/claude"; export FAKE_CLAUDE_DIR=$TMP; export PATH="$TMP/
 . "$REPO/test/rewrite-tests.sh"
 . "$REPO/test/sweep-tests.sh"
 . "$REPO/test/uninstall-tests.sh"
+. "$REPO/test/private-tests.sh"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" = 0 ]

@@ -13,6 +13,8 @@
 #   git scrub rewrite         replace the mapped values through the whole history, rewrite
 #                             identities, drop paths and delete message lines; never pushes
 #   git scrub text            check where<TAB>text lines on stdin
+#   git scrub private [REMOTE]  pass only if GitHub answers 404 to an anonymous request
+#                             for the remote's repo (origin by default)
 #   git scrub write-hook      Claude Code PostToolUse hook: check the lines a tool call
 #                             just added in an enabled public repo, and tell Claude (E12)
 #   git scrub write-hook-end  Claude Code SessionEnd hook: drop that session's saved diff
@@ -550,6 +552,22 @@ write_hook_end() {
   exit 0
 }
 
+# C2.3: an anonymous GitHub API request for the remote's owner/repo must get 404. Run
+# only when asked; no hook calls it. curl gets no token and reads no .netrc.
+private_check() { # [REMOTE]
+  local url slug code
+  url=$(git remote get-url "${1:-origin}" 2>/dev/null) || die "no remote ${1:-origin}"
+  slug=$(sed -E -n 's#^(https?://([^@/]*@)?|ssh://([^@/]*@)?|[^@/]*@)github\.com[:/]([^/]+/[^/]+)/?$#\4#p' <<< "$url"); slug=${slug%.git}
+  [ -n "$slug" ] || die "${1:-origin} is not a GitHub remote: $url"
+  code=$(env -u GITHUB_TOKEN -u GH_TOKEN curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
+    -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$slug") || code=000
+  case $code in
+    404) echo "git-scrub: $slug is not visible anonymously (404)"; exit 0 ;;
+    200) echo "git-scrub: $slug is PUBLIC: an anonymous request can read it (200)" >&2; exit 1 ;;
+    *)   die "the GitHub API answered $code for $slug; visibility not known" ;;
+  esac
+}
+
 # C8.6: pre-commit and commit-msg leave a mark when they pass; post-commit records the new
 # commit as passed only if both marks are for it, so --no-verify leaves it off the list.
 mark() { local gd; gd=$(git rev-parse --absolute-git-dir); mkdir -p "$gd/scrub"; echo "$gd/scrub/pending"; }
@@ -604,6 +622,7 @@ case $sub in
            ( "$self" message "${1:-}" ) || exit $?
            p=$(mark); [ -f "$p" ] && gawk -F'\t' -v OFS='\t' '{ $2 = "ok"; print }' "$p" > "$p.new" && mv "$p.new" "$p" ;;
   hook-post-commit) post_commit ;;
+  private) private_check "${1:-}" ;;
   write-hook) write_hook ;;
   write-hook-end) write_hook_end ;;
   enable)  enable ;;

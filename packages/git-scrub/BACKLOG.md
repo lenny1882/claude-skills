@@ -372,3 +372,14 @@ Seen failing first, each fault planted in a copy of the package:
   version of that test kept only the last of five timed calls' output, by which time the
   line had been seen, and missed the fault; it now checks the first call.
 
+## 21. Visibility check — **DONE 25 Nov 2026** for C2.3
+
+`git scrub private [REMOTE]` reads the owner and repo from a GitHub remote (SSH, HTTPS
+or `ssh://` form), asks `https://api.github.com/repos/<owner>/<repo>` with no token, and
+exits 0 on 404, 1 on 200, and 2 on any other answer or a remote that is not GitHub.
+`test/private-tests.sh` uses a fake `curl`: each URL form asks for the right repo, no
+token reaches the request, and each answer gives its exit code. Seen failing first: the
+first version left `.git` on the repo name from the SSH and `ssh://` forms, and those two
+cases failed; planted, a 200 passing failed "200 fails", and a token passed through
+failed "the request carries no token".
+
