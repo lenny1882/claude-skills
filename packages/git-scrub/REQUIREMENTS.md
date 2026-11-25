@@ -77,9 +77,17 @@ made with no output beyond one log line. No commit object is created for a refus
 - **C1.4 Built-in labels.** Every repo gets these, case-sensitive as the commit checker has
   them: redaction labels (`[... removed]`), session ordinals ("sixth session"), `(R)`,
   Claude session links and ids, UUIDs, `/tmp/claude-<uid>` paths, email addresses, Slack
-  ids, the Atlassian cloud domain. A repo's config can add labels and turn built-ins off.
-  The commit checker's repo-only labels (a surname, a local export path) move to that
-  repo's config.
+  ids, the Atlassian cloud domain. A repo's config can add labels, each case-sensitive or
+  not, and turn built-ins off. The commit checker's repo-only labels (the owner's first
+  name, matched case-sensitively so `/home/<user>` paths pass; a surname; a local export
+  path) move to that repo's config. Three more labels are on only in a repo marked public
+  (C4.4): a dated attribution (`(Name, 11 Nov 2026`, or `the owner` in place of the name),
+  an answered-question log line (`Answered` at the start of a line, after an optional item
+  number), and release history (`released as` or `released in` before a version).
+  *Overturned 25 Nov 2026: a fourth, a quoted full sentence (`"[A-Z][^"]{10,}[.?!]"`). Over
+  the two public repos' recent history it matched code strings, docstrings, installer
+  messages and test fixtures almost every time, and found no quote that E3 missed. E3
+  reading every project's typed prompts (C3.1) replaces it.*
 - **C1.5 An allowlist per repo.** One value per line, case-insensitive; a listed value is
   never flagged by any stage-1 check.
 - **C1.6 The locale is set by the script.** It sets `LC_ALL=C.UTF-8` itself, so a hook
@@ -105,27 +113,65 @@ goes through. A branch deletion is not checked.*
 
 ### E3. My own wording doesn't get committed
 
-Opt-in per repo. A line that repeats 8 words in a row from something I typed to Claude, or
-closely paraphrases a sentence I typed, is refused.
-*Acceptance: with wording on and a test transcript directory: a line holding 8 consecutive
-words of a typed prompt is refused as "wording"; a line sharing 4+ content words and 60%+ of
-its content words with a typed sentence is refused as "close to wording"; the same 8 words
-are not refused when Claude wrote them in an earlier transcript event; text inside
-`<pasted_content>` and other tags is never treated as mine.*
+Opt-in per repo, and on by default in a repo marked public (C4.4), where its config can
+still turn it off. A line that repeats 6 words in a row from something I typed to Claude,
+holds the whole of a clause I typed of 5 words or more, or closely paraphrases a sentence I
+typed, is refused, whether it is in quotes or not.
+*Acceptance: with wording on, a test prompt log and a test transcript directory: a line holding 6 consecutive
+words from the middle of a longer typed clause is refused as "wording", and one holding 5
+such words is not; a line holding a whole typed clause of 6
+words, unquoted, is refused as "wording", and one of 4 words is not; a line sharing 4+
+content words and 60%+ of its content words with a typed sentence is refused as "close to
+wording"; the same 6 words or clause are not refused when, earlier than my typing them,
+Claude wrote them in its reply, wrote them in a tool call's input (a file it wrote, a
+command it ran), a tool printed them, or a subagent wrote them; text in a
+prompt's `pastedContents` is never treated as mine; a clause I typed in another
+project's session is refused in this repo; in a repo marked public with no wording
+setting, the 6-word clause is refused.
+Measured: over an invented set of 200 typed prompts and an invented docs tree of 2,000
+lines that quotes none of them, the false hits of the 6-word runs and of the 5-word clause
+rule (C3.5) are counted, logged and recorded in BACKLOG.md beside the pass, with the run
+length and the floor kept or changed on that count.*
 
-- **C3.1 Transcripts.** The directories are the Claude project directory for the repo's
-  path (`~/.claude/projects/` plus the path with `/` replaced by `-`), plus any listed in
-  config. Files are read in order of their first timestamp.
-- **C3.2 What counts as mine.** User events only, not sidechains, not `isMeta`, not skill
-  loads or command expansions, with `<pasted_content>` and other tag pairs removed (done in
-  jq, which has the back-references and lazy matching this needs). Malformed lines are
-  skipped.
+- **C3.1 Where my wording comes from.** `~/.claude/history.jsonl`: the `display` field of
+  each entry, which holds what I typed in every project, with pasted text kept apart in
+  `pastedContents` and never read; the `[Pasted text #N]` markers left in `display` are
+  removed. Claude Code never cleans this file, and one pass over it
+  takes well under a second. Wording typed in one project's session is often quoted in
+  another repo's docs, so every project's prompts count, not just this repo's. Any other
+  prompt files listed in config are read the same way.
+- **C3.2 What rules wording out.** A run or clause from C3.1 is not mine when it
+  appeared, before the prompt's timestamp, in any of: Claude's reply text; a tool call's
+  input (a file Claude wrote or edited, a command it ran); a tool's output; a subagent's
+  transcript. The transcripts are read only for a line that has already hit at C3.1, and
+  only for that run or clause, in this order, stopping at the first that rules it out:
+  1. the transcript of the session the prompt was typed in (its `sessionId`), with that
+     session's subagent transcripts;
+  2. one fixed-string `grep -F` for the run over every other transcript under
+     `~/.claude/projects/`, for text copied in from another session, then a read of only
+     the files it names.
+
+  Malformed lines are skipped. A line with no hit at C3.1 reads no transcript. Text I paste back from a doc Claude wrote,
+  from an error message or from a command's output is therefore not my wording. Claude
+  Code deletes transcripts after `cleanupPeriodDays`, so Claude text I paste back after its
+  transcript is gone can be reported as mine.
 - **C3.3 Paraphrase rule.** As the commit checker's: clauses split at sentence punctuation,
   newlines, ` - ` and `, but `; content words exclude the stop list and words under 3
   characters, with a trailing `s` dropped on words over 4; words common across the repo's
-  own tracked text don't count.
-- **C3.4 The cache.** Rebuilt when any input is newer than it. Kept under the repo's git
-  directory, mode 0600. How shingles are stored: BACKLOG item 4.
+  own tracked text don't count. C3.5 uses the same clause split.
+- **C3.4 No wording cache.** Each run reads its inputs afresh. git-scrub keeps no copy of
+  my wording on disk.
+- **C3.6 Run length.** A per-repo setting, 6 words by default. Below 6, a run matches
+  ordinary phrasing far more often than it matches a quote: over the two public repos'
+  recent commits, runs of 6 caught every quoted line that runs of 5, 4 or 3 caught, and each
+  shorter length added only false hits. *Changed from the commit checker's 8, which missed
+  a quote broken across a line and a 6-word question; D3 lists it as an intended
+  difference.*
+- **C3.5 Whole-clause rule.** Each typed clause of 5 words or more, lowercased, with
+  punctuation removed and spaces collapsed, except a clause that is not mine under C3.2.
+  A line is refused when, normalised the same way, it holds one of them
+  as a whole run of words. The floor of 5 is a per-repo setting. *New: the commit checker
+  has no such rule, so D3 lists it as an intended difference.*
 
 ### E4. A model sweep catches what patterns can't
 
@@ -139,10 +185,43 @@ the prompt.*
 - **C4.1 The call.** `claude -p` with no tools, no session persistence, strict MCP config,
   no setting sources, model `sonnet`, from `$TMPDIR`, 10-minute timeout, batches of 400
   lines. It gets the categories and my anonymised wording list (C3), never a stage-1 value.
+  The prompt also carries a fixed instruction, the same as the commit checker's: be strict
+  about figures describing the owner's or the company's activity, internal tool or vendor
+  names, and wording that reads like a quote or close paraphrase of the owner; in a repo
+  marked public, also about any line that is narrative, history, attribution or commentary
+  rather than a requirement, behaviour, usage or technical reason. It answers one
+  `FINDING<TAB>location<TAB>category<TAB>description` line per finding, never quoting the
+  line, or the single word `CLEAN`. The prompt goes to `claude` on stdin, never as an
+  argument, which any process can read from `/proc`, and never in a file, which would leave
+  the staged lines and my wording on disk.
 - **C4.2 A batch that can't be checked blocks with exit 2.** Its line range is reported and
   the remaining batches still run. *Fixes the commit checker, which returns exit 1.*
 - **C4.3 Skipping it.** `SWEEP_SKIP=1` skips stage 2 for one run and the log says so. A
   repo's config can turn the sweep off.
+- **C4.4 Public-repo rules.** A repo's config can mark it public. That turns on E3 by
+  default, C1.4's three public-repo labels at stage 1, the write hook (E12), the public part of C4.1's
+  instruction, and a built-in set of categories for the sweep. The sweep is the backstop
+  for what stage 1 can't tell apart from other text: a short quoted phrase of the owner's
+  in lower case, and reported speech without quotes. The categories:
+  - narrative and commentary: how or when something came about, release-by-release
+    history, what happened in a run, stories told to justify a rule, opinions about the
+    owner or the work, and dates whose only purpose is to say when something was decided;
+  - attributions of any kind ("as asked", "I chose", "the owner chose", a name with a
+    date), reported speech, question-by-question logs and their answers, and what was
+    proposed, offered, rejected or refused and by whom;
+  - a commit message that says what the commit did to the text instead of the behaviour
+    it gives;
+  - a placeholder that the text around it gives back: its length, its spelling, what kind
+    of word it is or what else it is used as, or an ordinary word replaced so that the
+    sentence decodes it.
+
+  A repo's own categories file still adds to these.
+  *Acceptance: with the repo marked public, a planted dated attribution, an `Answered`
+  line and a `released as 1.2` line are each refused at stage 1, and a planted undated
+  attribution, a planted run story, a planted placeholder whose sentence names what it
+  hides, a short lower-case quoted phrase introduced as the owner's, and a line of reported
+  speech without quotes are each reported by the sweep; with the repo not marked, none of
+  the eight is refused.*
 
 ### E5. New activity figures are caught
 
@@ -175,24 +254,37 @@ by `tree`; a value only in an uncommitted working-copy change is found by neithe
 ### E7. I can scrub history
 
 `git scrub rewrite` replaces forbidden values through the whole history, rewrites
-identities, and can drop paths, then proves the result is clean. It never pushes.
+identities, can drop paths, and can delete whole lines from commit messages, then proves
+the result is clean. It never pushes.
 *Acceptance: in a test repo with values planted in three commits' blobs, one message and
-one author: after `rewrite` with a map, `history` finds nothing; every replaced value reads
-as its placeholder; the dropped path is in no commit; a `git bundle` of the old history
-exists and restores it; a dirty working tree makes `rewrite` refuse before doing anything.*
+one author, and an invented session trailer in two messages: after `rewrite` with a map
+and a message-line pattern, `history` finds nothing; every replaced value reads as its
+placeholder; no message holds the trailer line, and the rest of each message is
+unchanged; the dropped path is in no commit; a `git bundle` of the old history exists at
+`.git/scrub/rewrite-<date>.bundle` and restores it, and a push to a test remote does not
+send it; a dirty working tree makes `rewrite` refuse before doing anything.*
 
 - **C7.1 The method.** `git fast-export --all | gawk | git fast-import`, rewriting blob
   data, commit messages and identities in one pass. No Python, no Java.
 - **C7.2 The replacement map.** One `value<TAB>placeholder` per line, kept with the repo's
-  config. `git scrub history --map` writes a starting map from the findings, with
-  placeholders numbered by category (`[name-01]`, `[repo-03]`).
+  config. The placeholder is any text, readable ones included (`<user>`, `client_a`).
+  `git scrub history --map` writes a starting map from the findings, with placeholders
+  numbered by category (`[name-01]`, `[repo-03]`), for me to edit before `rewrite`.
 - **C7.3 What it won't replace.** Wording, paraphrase and activity-figure findings have no
   placeholder; `rewrite` lists them by commit and path for a hand edit and refuses to call
   the history clean while any remain.
 - **C7.4 Before and after.** It refuses on a dirty tree, writes a bundle backup first, and
-  finishes by running `history`. Its last output lists what only I can do: force-push every
-  rewritten ref, re-clone every other clone, and ask the host (GitHub Support; Bitbucket
-  support) to purge cached views and old commits reachable by SHA.
+  finishes by running `history`. The bundle goes in `.git/scrub/rewrite-<date>.bundle`,
+  mode 0600: git never tracks or pushes a file there, and the old objects stay in
+  `.git/objects` through the reflog anyway, so it holds nothing the clone doesn't already.
+  Its last output lists what only I can do: force-push every rewritten ref, re-clone every
+  other clone, ask the host (GitHub Support; Bitbucket support) to purge cached views and
+  old commits reachable by SHA, and delete the bundle once the pushed refs are checked,
+  since `git gc` never removes it.
+- **C7.5 Message lines to delete.** A repo's config lists extended regular expressions
+  for whole message lines, such as session trailers. `rewrite` deletes every matching line
+  from every commit message, along with a blank line left trailing. The same patterns are
+  forbidden in new commit messages (E1, E2).
 
 ## C. Using it everywhere
 
@@ -200,27 +292,90 @@ exists and restores it; a dirty working tree makes `rewrite` refuse before doing
 
 *Acceptance: `git scrub enable` in a repo that already has its own `pre-push` (in
 `.git/hooks` or `core.hooksPath`) leaves that hook running as before, and git-scrub's
-checks run too; `git scrub disable` puts the repo back as it was.* Hook point and install
-model: BACKLOG items 1 and 2.
+checks run too; `git scrub disable` puts the repo back as it was. With one repo's config
+in place, each of these finds it with no command but `git scrub enable`, and with no
+`enable` at all for a clone already enabled: a fresh full clone; the same clone after its
+remote URL changes from SSH to HTTPS form, after the remote repo is renamed, and after it
+moves to another host; a clone with no remote; a clone with two remotes; the checkout
+folder moved or renamed; a shallow clone of depth 1 whose tip was made by an enabled
+clone; a shallow clone of depth 1 whose tip was made in another repo copy and whose
+remote URL is new to git-scrub; a repo after `git scrub rewrite`; a repo with no commits
+that then gets its first one. With the remote unreachable, that last shallow clone's
+checks refuse with exit 2 and the reason, and pass on the next run once it is reachable.
+Uninstalling and reinstalling git-scrub loses no repo's config. A commit that passed at
+commit time is not checked again at push while the repo's config is unchanged; a commit
+made with `--no-verify` is checked at push; after a value is added to the config, every
+commit the push sends is checked again.*
 
 - **C8.1 Config lives outside every tree.** Nothing that holds a forbidden value is ever in
-  a tracked file. Location: BACKLOG item 3.
+  a tracked file. Each repo's config is a folder at `~/.claude/skills/git-scrub/state/<id>/`,
+  the claude-package-kit state path for a skill, which survives installs and upgrades.
+- **C8.3 A repo's id is its root commit hash.** The first of `git rev-list
+  --max-parents=0 HEAD` in sorted order. It does not change with the remote URL, the
+  repo's name, its host, the number of remotes, or the checkout's path. Each run looks the
+  config up in this order, and the first match writes `scrub.id` into the clone's git
+  config:
+  1. `scrub.id` in the clone's git config;
+  2. the root commit hash, in a full clone;
+  3. in a shallow clone, the root commit hash read from a commits-only bare clone of its
+     remote (`git clone --bare --filter=tree:0`) in a temporary directory, deleted after;
+     the working clone stays shallow. This is the only time git-scrub fetches; it never
+     writes to a remote.
+
+  A repo with no commits gets a generated id at `enable`; its first commit moves
+  the config folder to the root hash and updates `scrub.id`. `git scrub rewrite` moves the
+  folder to the new root hash and updates `scrub.id`.
+- **C8.4 No config found fails closed.** In an enabled repo where no step of C8.3 finds a
+  config, or step 3 cannot reach the remote, every check refuses with exit 2 and names
+  each step it tried and why it failed. It never passes with an empty list. The same goes
+  for my wording: with E3 on, if `history.jsonl` or the transcript directory is missing,
+  unreadable or empty, as when the encrypted directory holding them is locked, every check
+  refuses with exit 2 and names the path.
+- **C8.6 Checked at commit and at push.** `git scrub enable` installs `pre-commit`,
+  `commit-msg` and `pre-push`. Each config keeps a list of commits that passed
+  `pre-commit` and `commit-msg`, with the hash of the config they passed under. At push
+  (C2.1) the tip's tree is always checked; a new commit is skipped only when it is on
+  that list under the config's current hash. Commits made with `--no-verify`, by a rebase
+  or a merge, or in a clone without the hooks, are not on it and are checked.
+- **C8.7 Enabled per repo, chained to the repo's own hooks.** `git scrub enable` changes
+  only the repo it runs in, never the global git config. Where the repo already has a
+  hook of the same name, in `.git/hooks` or in its own `core.hooksPath` (a tracked
+  `.githooks`, husky, GSD's hooks), git-scrub's hook runs it as well, with the same
+  arguments and stdin, and fails if either fails. Where the repo sets `core.hooksPath`,
+  `enable` installs into that directory's place without changing the tracked hooks: it
+  points `core.hooksPath` at git-scrub's own hook directory for that repo, which calls
+  the tracked hooks. `git scrub disable` restores the repo's previous `core.hooksPath`
+  and hooks exactly.
+- **C8.5 Uninstalling keeps the config.** git-scrub's uninstall refuses to remove `state/`
+  while it holds any repo's config, unless given `--keep-state` or a confirmation typed at
+  the prompt.
 - **C8.2 The skill.** Covers enabling and disabling, adding values, patterns, labels and
   allowlist entries, reading a block, running an audit, and the rewrite with its outward
-  steps. It never runs a force-push or contacts a host.
+  steps. It never runs a force-push or contacts a host's support.
 
 ### E9. A block tells me what and where
 
 *Acceptance: every finding prints location, category and the matched value (stage 1) or
 the model's description (stage 2); more than 200 findings print the first 200 and the
 count; every run, clean or not, appends to the repo's log and writes
-`/tmp/git-scrub-<subcommand>.log`, both mode 0600.*
+`/tmp/git-scrub-<subcommand>.log`, both mode 0600; neither log holds a matched value, my
+wording or the model's description, only each finding's location and category and the
+run's counts, since the logs sit outside the encrypted directory that holds my session
+text. The value and description go to the terminal only.*
 
 ### E10. It's fast enough to leave on
 
-*Acceptance: with a warm cache, stage 1 on a 200-line staged diff finishes in under 2
-seconds, and `tree` over a 2,000-file repo in under 30; the first cache build over 110 MB of
-transcripts is timed and recorded. Numbers to be confirmed: BACKLOG item 5.*
+*Acceptance, with a 3 MB prompt log (about 11,000 prompts) and a 1 GB transcript
+directory: stage 1 on a 200-line staged diff with no wording hit, reading every input
+afresh, finishes in under 2 seconds; the same diff with hits, including C3.2's one lookup
+pass for all of them, in under 5; the write hook (E12) in under 1 second per tool call;
+`tree` over a 2,000-file repo in under 30. The paraphrase rule (C3.3) is timed on its own
+and recorded.*
+
+Measured for these figures: building 6-word runs and whole clauses from that prompt log
+and checking 200 lines against them took 0.65 s, nearly all of it reading the log, so a
+1-line change costs about the same as 200 lines. One lookup pass over the transcripts took
+0.7 to 3.0 s with punctuation allowed between words, and runs several hits in one `grep`.
 
 ### E11. Both existing checkers are replaced with nothing lost
 
@@ -228,7 +383,41 @@ transcripts is timed and recorded. Numbers to be confirmed: BACKLOG item 5.*
 replaced by git-scrub with its values, categories and allowlist moved to config; the private
 repo's push checker becomes a wrapper calling `git scrub push` and `git scrub private` that
 keeps its own log lines, check labels and `FAULT=` runs, and its fail-first runs still fail
-the named checks.*
+the named checks; the private repo's own scrub requirement still shows complete in its
+status script, from a counted run of the wrapper and its two fail-first runs; the names
+that repo keeps on purpose are in its allowlist, and `git scrub history` over it finds
+nothing; the commit checker's `.git/sanitise-cache.json`, which holds typed sentences, and
+`.git/sanitise.log` are deleted from the public repo's clone.*
+
+### E12. Claude is told the moment it writes my words or a diary line into a public repo
+
+In a repo where git-scrub is enabled and marked public, whatever tool Claude used to change
+the working tree — `Write`, `Edit`, or a Bash command — the new lines are checked straight
+after, and Claude is shown each finding so it rewrites the line while it still has the
+context. The commit and push hooks still run, so nothing depends on this one.
+*Acceptance: in a test repo marked public, with a test prompt log and transcript directory: a `Write`
+holding a 6-word typed clause, an `Edit` adding a dated attribution, and a Bash heredoc
+appending a `released as 1.2` line each produce a finding shown to Claude, naming the file,
+line and rule; a clean write produces nothing; a `Write` holding 6 words Claude wrote
+earlier in the same test session, which the test prompt then repeated, produces nothing; in a repo not marked public, or not enabled,
+the hook does nothing and exits 0 within 50 ms; a stage-1 check on a 200-line change
+finishes within E10's budget.*
+
+- **C12.1 The hook.** A `PostToolUse` hook on every tool, registered by git-scrub's own
+  `manifest.sh`. It returns at once outside an enabled public repo. Inside one, it diffs the
+  working tree against what it saw after the previous tool call (the index and HEAD on the
+  first call of a session), and passes only the new and changed lines on.
+- **C12.2 The check.** `git scrub text` reads lines with their file and line number on
+  stdin and runs stage 1 only: E3's runs, clauses and paraphrase with C3.2's lookup on a
+  hit, the same as at commit, C1.4's labels including
+  the three public-repo ones, and the repo's values and patterns. No model sweep, which
+  takes too long for a tool call and still runs at commit.
+- **C12.3 The finding.** Shown to Claude through the hook's output as a message that names
+  the file, line and rule, never the matched value or my wording, and says to rewrite the
+  line without it. It does not undo the write; the commit hook still refuses the line if
+  it stays.
+- **C12.4 Its state.** The last-seen diff per session is kept under the repo's git
+  directory, mode 0600, and removed when the session ends.
 
 ---
 
@@ -259,9 +448,15 @@ the named checks.*
   recorded in `BACKLOG.md` beside the pass.
 - **D3 Differential test against the commit checker.** Run on this machine only, reading the
   Python checker from its local path (it holds real values and is never copied into this
-  repo). Both run over the planted-case set and over the public repo's full history and
+  repo). The run's log records the SHA-1 of the checker's script and categories file, so a
+  later change to either shows the comparison is stale. The public repo is marked public
+  in git-scrub's config for this run, as its labels and sweep instruction are public-repo
+  rules here (C4.4). Both run over the planted-case set and over the public repo's full history and
   HEAD tree; findings match line for line, except the four listed fixes (C4.2, C6.2, C6.3,
-  C6.4), each shown by a planted case where the outputs differ as intended.
+  C6.4) and the new wording rules (C3.5's whole clauses, C3.6's 6-word runs, C3.1's reading
+  of every project's prompts, C3.2's exclusion of tool input and output), each shown by a planted case where the
+  outputs differ as intended. Over the public repo's history and tree, the new rules'
+  extra findings and the ones they no longer report are listed apart from the comparison.
 - **D4 A failed check fails the run.** Every test subcommand ends with its pass and fail
   counts and exits 1 on any FAIL.
 - **D5 Every run logs.** Every script and test subcommand writes
@@ -269,7 +464,7 @@ the named checks.*
 - **D6 Clean by its own check.** `git scrub history` over claude-skills finds nothing, and
   git-scrub is on there.
 - **D7 In use.** Installed from a release tarball into
-  `/mnt/sda/User/Programs/claude-tools/git-scrub`, on in both repos of E11 with the old
+  `<tools-dir>/git-scrub`, on in both repos of E11 with the old
   checkers gone, with a row in `INVENTORY.md`.
 - **D8 Documented.** README, SKILL.md and the claude-skills README row describe what
   shipped; every BACKLOG item is done or moved to a later version with a reason.
