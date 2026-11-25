@@ -277,3 +277,24 @@ refusal to remove the config (C8.5, and E8's uninstall-and-reinstall case), `his
 (E6), the model sweep (E4), the write hook (E12) and the private-repo visibility check
 (C2.3).
 
+## 16. Model sweep — **DONE 25 Nov 2026** for E4, C4.1 to C4.4
+
+`sweep()` in `skill/bin/git-scrub` sends batches of 400 lines to `claude -p` on stdin,
+with the repo's categories, `skill/lib/public-categories.md` in a repo marked public, the
+public instruction there, and the related typed clauses chosen by
+`skill/lib/sweep-wording.awk` with values removed by `stage1.awk`'s redact mode.
+`test/sweep-tests.sh` checks, with a fake `claude` that every other test also gets: no
+stage-1 value in the prompt, the redacted wording, the categories and public part, a
+finding blocking with exit 1, an unusable answer and a failing `claude` each exiting 2
+with the batch named, 451 lines in two batches with the second run after the first
+fails, `SWEEP_SKIP=1`, `sweep=0`, and no sweep after a stage-1 finding. With the real
+`claude`: S1 to S5 and S7 to S9 reported, S6's message reported, and C0 CLEAN. 148
+passed, 0 failed.
+
+Seen failing first, each fault planted in a copy of the package, run with the real
+`claude` left out (its tests then fail as "E4 (real claude)"):
+- The wording list sent without redaction: "no stage-1 value is in the prompt" and
+  "related wording sent redacted" failed.
+- An unusable answer treated as clean: both X1 (C4.2) checks failed.
+- The built-in public categories emptied: "categories in the prompt" failed.
+

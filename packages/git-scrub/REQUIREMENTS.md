@@ -190,6 +190,11 @@ the prompt.*
 - **C4.1 The call.** `claude -p` with no tools, no session persistence, strict MCP config,
   no setting sources, model `sonnet`, from `$TMPDIR`, 10-minute timeout, batches of 400
   lines. It gets the categories and my anonymised wording list (C3), never a stage-1 value.
+  The wording list is the typed clauses sharing 2 or more content words with the batch,
+  most shared first, at most 100, with every value and label match replaced by
+  `[removed]`: every prompt ever typed would not fit in one call. It runs only when stage 1
+  found nothing, on `staged`, `message` and `tree`, and at push on the new commits that are
+  not on the passed list.
   The prompt also carries a fixed instruction, the same as the commit checker's: be strict
   about figures describing the owner's or the company's activity, internal tool or vendor
   names, and wording that reads like a quote or close paraphrase of the owner; in a repo

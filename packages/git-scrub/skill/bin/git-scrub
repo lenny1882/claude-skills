@@ -239,6 +239,63 @@ scan() { # MODE LINES
   return 0
 }
 
+# E4: the model sweep over LINES that passed stage 1. Batches of 400, the prompt on stdin
+# (C4.1), an unusable answer blocking with exit 2 while the other batches still run (C4.2).
+sweep_failed=0
+sweep() { # LINES
+  local lines=$1 cats public n i first last prompt out rc said
+  [ -s "$lines" ] || return 0
+  if [ "${SWEEP_SKIP:-}" = 1 ]; then echo "$(date -u +%FT%TZ) stage 2 skipped by SWEEP_SKIP=1" | tee -a "$cfg/log" >> "$tmplog"; return 0; fi
+  [ "$(setting sweep 1)" = 0 ] && return 0
+  public=$(setting public 0)
+  cats=$( { [ "$public" = 1 ] && cat "$LIB/public-categories.md"; [ -f "$cfg/categories.md" ] && cat "$cfg/categories.md"; } 2>/dev/null )
+  [ -n "$cats" ] || return 0
+  gawk -F'\t' 'index($0, "\t") && $2 ~ /[^[:space:]]/' "$lines" > "$work/sw"
+  n=$(wc -l < "$work/sw")
+  for ((i = 1; i <= n; i += 400)); do
+    sed -n "${i},$((i + 399))p" "$work/sw" > "$work/batch"
+    said=""
+    if [ "$words" = 1 ]; then
+      said=$(gawk -f "$LIB/sweep-wording.awk" "$LIB/stop.txt" "$work/batch" "$work/prompts" \
+        | gawk '{ print "x\t" $0 }' | gawk -v mode=redact -f "$LIB/stage1.awk" "$work/values" "$work/dict" "$work/common" \
+            "$work/allow" "$work/labels" /dev/null /dev/null - | sed 's/^/- /')
+    fi
+    prompt="You check text that is about to be committed to a git repository.
+The repository's owner has had the following categories removed from it and they must
+not come back:
+
+$cats
+
+Below, each line is LOCATION<TAB>TEXT. Report every line that contains something in those
+categories. Be strict about figures describing the owner's or the company's activity,
+internal tool or vendor names, and wording that reads like a quote or close paraphrase of
+the owner.$( [ "$public" = 1 ] && printf '%s' " This repository is public: be strict too about any line that is
+narrative, history, attribution or commentary rather than a requirement, behaviour, usage
+or technical reason." )
+${said:+
+Things the owner has said (names already replaced). A line that repeats or closely
+paraphrases any of these is a quote of the owner, even if reworded:
+$said
+}
+Answer with one line per finding, exactly:
+FINDING<TAB>LOCATION<TAB>CATEGORY<TAB>a few words of your own saying what kind of thing it
+is (do not quote the line)
+and nothing else. If there are none, answer with the single word CLEAN.
+
+--- lines ---
+$(cat "$work/batch")
+--- end ---"
+    out=$(cd "${TMPDIR:-/tmp}" && printf '%s\n' "$prompt" | timeout 600 claude -p --tools "" --no-session-persistence \
+      --strict-mcp-config --setting-sources "" --model sonnet --output-format text 2>/dev/null); rc=$?
+    first=$(head -1 "$work/batch" | cut -f1); last=$(tail -1 "$work/batch" | cut -f1)
+    if [ "$rc" != 0 ] || { ! "$GREP" -q '^FINDING' <<< "$out" && [ "$(tr -d ' .\n' <<< "$out")" != CLEAN ]; }; then
+      printf '%s .. %s\tsweep: batch could not be checked\trerun, or check these lines by hand\n' "$first" "$last" >> "$work/found"
+      sweep_failed=1; continue
+    fi
+    gawk -F'\t' '/^FINDING/ { if (NF >= 4) print $2 "\tsweep: " $3 "\t" $4; else print "?\tsweep\t" substr($0, 9) }' <<< "$out" >> "$work/found"
+  done
+}
+
 # Prints the findings, logs counts and categories only, and exits (E9, P4).
 report() { # MODE
   local mode=$1 n counts
@@ -249,6 +306,7 @@ report() { # MODE
   printf '\ngit-scrub: %d finding(s) in %s\n' "$n" "$mode" >&2
   head -200 "$work/found" | gawk -F'\t' '{ printf "  %s  [%s]  %s\n", $1, $2, $3 }' >&2
   [ "$n" -gt 200 ] && printf '  ... and %d more\n' $((n - 200)) >&2
+  [ "$sweep_failed" = 1 ] && { printf 'git-scrub: the model sweep could not check every batch. SWEEP_SKIP=1 skips it for one run.\n' >&2; exit 2; }
   exit 1
 }
 
@@ -282,6 +340,10 @@ push_check() { # reads TIP<TAB>RANGE-ARGS lines from $work/refs
     done
   done < "$work/refs"
   scan tree "$work/tree"; scan staged "$work/added"; scan message "$work/msgs"
+  if [ ! -s "$work/found" ]; then   # the sweep reads only the commits that skipped the hooks
+    [ -s "$work/prompts" ] || [ "$words" != 1 ] || prompts > "$work/prompts"
+    cat "$work/added" "$work/msgs" > "$work/new"; sweep "$work/new"
+  fi
   report push
 }
 
@@ -374,9 +436,11 @@ post_commit() {
 work=$(mktemp -d) || die "no temp directory"
 trap 'rm -rf "$work"' EXIT
 case $sub in
-  staged)  cfg=$(config_dir) || exit 2; prepare; staged_lines > "$work/lines"; scan staged "$work/lines"; report staged ;;
+  staged)  cfg=$(config_dir) || exit 2; prepare; staged_lines > "$work/lines"; scan staged "$work/lines"
+           [ -s "$work/found" ] || { [ -s "$work/prompts" ] || [ "$words" != 1 ] || prompts > "$work/prompts"; sweep "$work/lines"; }; report staged ;;
   message) [ -f "${1:-}" ] || die "usage: git scrub message FILE"
-           cfg=$(config_dir) || exit 2; prepare; message_lines "$1" > "$work/lines"; scan message "$work/lines"; report message ;;
+           cfg=$(config_dir) || exit 2; prepare; message_lines "$1" > "$work/lines"; scan message "$work/lines"
+           [ -s "$work/found" ] || { [ -s "$work/prompts" ] || [ "$words" != 1 ] || prompts > "$work/prompts"; sweep "$work/lines"; }; report message ;;
   text)    cfg=$(config_dir) || exit 2; prepare; cat > "$work/lines"; scan text "$work/lines"; report text ;;
   tree)    cfg=$(config_dir) || exit 2; prepare; c=$(git rev-parse --verify "${1:-HEAD}^{commit}") || die "no commit ${1:-HEAD}"
            tree_lines "$c" > "$work/lines"; scan tree "$work/lines"; report tree ;;

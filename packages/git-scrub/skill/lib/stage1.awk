@@ -9,8 +9,9 @@
 #   6 msglines  message-line EREs (C7.5), used only when mode is message
 #   7 head      every tracked line at HEAD, for figures (E5)
 #   8 lines     where<TAB>text, the lines to check
-# Variables: mode (staged, message, tree, history, text), figures (1 to check them).
-# Output: where<TAB>category<TAB>matched text, one line per finding.
+# Variables: mode (staged, message, tree, history, text, redact), figures (1 to check them).
+# Output: where<TAB>category<TAB>matched text, one line per finding. In redact mode, each
+# line's text instead, with every value and label match replaced by [removed] (C4.1).
 
 BEGIN { FS = "\n" }
 
@@ -30,6 +31,7 @@ ARGIND == 7 { head = head "\n" $0; next }
 ARGIND == 8 {
   if (!built) build()
   t = index($0, "\t"); where = substr($0, 1, t - 1); text = substr($0, t + 1)
+  if (mode == "redact") { print redact(text); next }
   check(where, text); next
 }
 
@@ -82,6 +84,32 @@ function alnum(c) { return c ~ /^[A-Za-z0-9]$/ }
 function wordc(c) { return c ~ /^[A-Za-z0-9_]$/ }
 
 function out(where, cat, s) { printf "%s\t%s\t%s\n", where, cat, s }
+
+function redact(text,   lt, i, v, L, p, k, s, e, cut, n, re, a, out, pos) {
+  lt = tolower(text); delete cut
+  for (i = 1; i <= nv; i++) {
+    v = order[i]; L = length(v); p = 1
+    while ((k = index(substr(lt, p), v)) > 0) {
+      s = p + k - 1
+      if (!(s > 1 && alnum(substr(lt, s - 1, 1))) && !alnum(substr(lt, s + L, 1))) for (e = s; e < s + L; e++) cut[e] = 1
+      p = s + 1
+    }
+  }
+  for (i = 1; i <= nl; i++) {
+    re = lre[i]; IGNORECASE = lcase[i]; pos = 1
+    while (pos <= length(text) && match(substr(text, pos), re)) {
+      a = pos + RSTART - 1; for (e = a; e < a + RLENGTH; e++) cut[e] = 1
+      pos = a + (RLENGTH > 0 ? RLENGTH : 1)
+    }
+    IGNORECASE = 0
+  }
+  out = ""; n = length(text)
+  for (e = 1; e <= n; e++) {
+    if (e in cut) { if (!((e - 1) in cut)) out = out "[removed]"; continue }
+    out = out substr(text, e, 1)
+  }
+  return out
+}
 
 function check(where, text,   lt, i, v, p, k, s, best, pos, cands, a, L, m, re, sub_, ok, anchored, n, d, w0) {
   # Values (C1.3): case-insensitive, no ASCII letter or digit either side; where the
