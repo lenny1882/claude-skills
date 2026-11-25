@@ -1,0 +1,2 @@
+# Message lines forbidden in new commit messages and deleted by rewrite (C7.5). Invented trailer.
+^Session-Trace:

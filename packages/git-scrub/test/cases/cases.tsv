@@ -1,0 +1,81 @@
+id	req	where	text	expect	checker	note
+BASE	E5	base/README.md	Baseline figure: 5,678 commits so far.	-	-	Committed before the cases, so HEAD holds 5,678.
+C0	E1	cases/C0.md	The parser reads one line at a time and writes a report.	pass	pass	Clean line; the sweep answers CLEAN.
+V1	C1.2	cases/V1.md	Quillon Varga reviewed the plan.	real value	real value	People source: whole name.
+V2	C1.2	cases/V2.md	Ask Varga about it.	real value	real value	People source: a part of 5+ characters.
+V3	C1.2	cases/V3.md	Ask Abel about it.	pass	pass	People source: a part under 5 characters.
+V4	C1.2	cases/V4.md	Post it in harbour.	pass	pass	A whole value that is one dictionary word.
+V5	C1.2	cases/V5.md	Marigold signed the contract.	real value	real value	An always source flags a dictionary word.
+V6	C1.2	cases/V6.md	Deploy to corvane-east-prod at noon.	pattern	-	ERE source; the commit checker has none.
+V7	C1.2	cases/V7.md	Message qvarga directly.	real value	real value	Slack users.json name.
+V8	C1.2	cases/V8.md	Discuss in brindle-ops first.	real value	real value	Slack channels.json name.
+V9	C1.2	cases/V9.md	Run qix again.	pass	pass	A value under 4 characters is dropped.
+V10	C1.2	cases/V10.md	Key tarnbecktarnbecktarnbecktarnbecktarnbecktarnbecktarnbecktarnbecktarnbecktarnbeckx here.	pass	pass	A value over 80 characters is dropped.
+V11	C1.2	cases/V11.md	Read https://wiki.corvane.example/start first.	pass	pass	A URL value is dropped.
+V12	C1.2	cases/V12.md	Exports live at @EXPORT@ now.	real value	real value	The named export path is kept. @EXPORT@ is filled in at run time with a path outside /tmp/claude-<uid>; inside it, the scratch-path label fires as well.
+V13	C1.2	cases/V13.md	Ask about trevalloc.	pass	pass	A string under a skipped key (note) is not a value.
+V14	C1.2	cases/V14.md	The trellisfold build is green.	real value	-	Literal values file; the commit checker has none.
+V15	C1.5	cases/V15.md	Join zephlin-core for updates.	pass	pass	Allowlisted value.
+V16	C1.2	cases/V16.md	Open D0TSTDM001 to read it.	real value,Slack id	real value,Slack id	Slack dms.json id, also a Slack id label.
+V17	C1.2	cases/V17.md	Chat with José Ferreira today.	real value	real value	A name with an accent.
+B1	C1.3	cases/B1.md	Deploy zarnok-tide tonight.	real value	real value	Value with a hyphen.
+B2	C1.3	cases/B2.md	Build vell_quor_v2 from main.	real value	real value	Value with an underscore, followed by an underscore.
+B3	C1.3	cases/B3.md	The xzarnok build and the zarnoks list.	pass	pass	A letter either side stops a match.
+B4	C1.3	cases/B4.md	See plimset.io/docs, not plimsetxio.	real value	real value	Dotted value; the dot matches only a dot.
+B5	C1.3	cases/B5.md	Mail orla.vintner@corvane.example now.	real value,email address	real value,email address	Email-shaped value.
+B6	C1.3	cases/B6.md	Ship zarnok-tidex today.	real value	real value	The longer value fails at this position, the shorter zarnok still matches.
+B7	C1.3	cases/B7.md	Tag zarnok2 later.	pass	pass	A digit after the value stops a match.
+B8	C1.6	scenario	V17's file holding JOSÉ FERREIRA, checked with env -i.	real value	real value	Locale set by the script.
+L1	C1.4	cases/L1.md	Details: [customer name removed] for now.	redaction label	redaction label	Built-in label.
+L2	C1.4	cases/L2.md	This came up in the sixth session.	session ordinal	session ordinal	Built-in label.
+L3	C1.4	cases/L3.md	Option B (R) is the default.	(R) recommendation marker	(R) recommendation marker	Built-in label.
+L4	C1.4	cases/L4.md	See claude.ai/code/session_01ABCDEFGHJK for the run.	Claude session link or id	Claude session link or id	Built-in label.
+L5	C1.4	cases/L5.md	Object 0f8e2a1c-3b4d-4e5f-8a9b-0c1d2e3f4a5b was stored.	session or object uuid	session or object uuid	Built-in label.
+L6	C1.4	cases/L6.md	Scratch files go in /tmp/claude-1000/build.	Claude scratch path	Claude scratch path	Built-in label.
+L7	C1.4	cases/L7.md	Raise it at corvane.atlassian.net today.	Atlassian domain	Atlassian domain	Built-in label.
+L8	C1.4	cases/L8.md	Write to dock.master@example.org for access.	email address	email address	Built-in label.
+L9	C1.4	cases/L9.md	Ping U0TSTXY999 in the channel.	Slack id	Slack id	Built-in label.
+L10	C1.4	cases/L10.md	Tobin approved the layout.	the owner's name	-	Repo label, case-sensitive; the commit checker's own is a real name.
+L11	C1.4	cases/L11.md	Clone into /home/tobin/src first.	pass	-	Lower case passes the case-sensitive repo label.
+L12	C1.4	cases/L12.md	Varnley wrote the first draft.	the owner's surname	-	Repo label.
+L13	C1.4	cases/L13.md	Exports sit in /srv/exports/slackarchive/new today.	Slack export path	-	Repo label.
+L14	C1.4,C4.4	cases/L14.md	(the owner, 11 Nov 2026) chose the layout.	dated attribution	dated attribution	Public repo only in git-scrub; always on in the commit checker.
+L15	C1.4,C4.4	cases/L15.md	3. Answered: use the north gate.	answered-question log	answered-question log	Public repo only in git-scrub.
+L16	C1.4,C4.4	cases/L16.md	The parser was released as 1.2 last spring.	release history	release history	Public repo only in git-scrub.
+L17	C4.4	scenario	L14, L15 and L16, and S4, S5, S7, S8 and S9, in a repo not marked public.	pass	-	None of the eight is refused.
+N1	E5	cases/N1.md	We now have 1,234 commits.	new activity figure	new activity figure	HEAD does not hold 1,234.
+N2	E5	cases/N2.md	Still at 5,678 commits.	pass	pass	HEAD holds 5,678 (BASE).
+N3	E5	cases/N3.md	In 2025, 40 sessions ran.	pass	pass	A year, and a 2-digit number.
+N4	E5	cases/N4.md	About 17% of messages were short.	new activity figure	new activity figure	A percentage.
+M1	E1	message	Add Quillon Varga to the reviewers	real value	real value	Commit message line.
+M2	C1.1	message	# Quillon Varga	pass	pass	A # line in the message is skipped.
+M3	C7.5	message	Session-Trace: 0042	message line	-	A message-line pattern from config.
+W1	C3.6	cases/W1.md	Copper kettles rattle while lamps flicker whenever the tide turns near marble quays.	wording	pass	6 words from the middle of a typed clause; runs of 8 miss it.
+W2	C3.6	cases/W2.md	Copper kettles rattle while lamps flicker whenever the tide shrinks near marble quays.	pass	pass	Only 5 words in a row.
+W3	C3.5	cases/W3.md	Most harbour crews agree nobody trusts the shared calendar here.	wording	pass	A whole typed clause of 5 words.
+W4	C3.5	cases/W4.md	We keep the ferry timetable on paper for the night crews at harbour gate.	wording	pass	A whole typed clause of 6 words.
+W5	C3.5	cases/W5.md	In practice paper wins every time for the late shift rota.	pass	pass	A whole typed clause of 4 words.
+W6	C3.3	cases/W6.md	Before any storm arrives, the porter locks the boathouse for the night.	close to wording	close to wording	Paraphrase: 6 of 6 content words shared.
+W7	C3.2	cases/W7.md	Remember the lighthouse keeper logs every passing vessel by hand.	pass	pass	Claude's reply held it first.
+W8	C3.2	cases/W8.md	Note that gulls nest under the eastern pier every single summer season.	pass	wording,close to wording	A tool call's input held it first.
+W9	C3.2	cases/W9.md	Logs say the harbour gate sensor reported a fault at midnight again.	pass	wording,close to wording	A tool's output held it first.
+W10	C3.2	cases/W10.md	Then the signal flags on the mast mean the pilot boat is waiting.	pass	wording,close to wording	A subagent wrote it first.
+W11	C3.1	cases/W11.md	The quarry trucks leave the depot at dawn and return loaded before noon.	pass	wording,close to wording	Pasted text is never mine.
+W12	C3.1	cases/W12.md	Every year the tram depot repaints its oldest carriages every winter.	wording,close to wording	pass	Typed in another project's session.
+W13	C3.6	cases/W13.md	Remember every crate on the north quay gets weighed twice.	wording,close to wording	wording,close to wording	A run of 8; both checkers refuse it.
+W14	C3.2	cases/W14.md	Check that the cargo manifest lists every container by weight and port.	wording,close to wording	wording,close to wording	Claude text pasted back after its transcript is gone is reported as mine.
+W15	E3	scenario	W4 in a repo marked public with no wording setting.	wording	-	E3 is on by default in a public repo.
+W16	E3	scenario	W1 in a repo not marked public with no wording setting.	pass	-	E3 is opt-in elsewhere.
+S1	E4	cases/S1.md	The Saltmarsh Wren docks at the east berth on Tuesdays.	sweep	-	Test category 1.
+S2	E4	cases/S2.md	Codename Bluefinch ships next quarter.	sweep	-	Test category 2.
+S3	C4.4	cases/S3.md	We added this after the March outage made everyone nervous.	sweep	sweep	Narrative and commentary.
+S4	C4.4	cases/S4.md	As the owner asked, the gate list stays short.	sweep	sweep	Undated attribution.
+S5	C4.4	cases/S5.md	During the last run the parser stalled twice before it recovered.	sweep	sweep	A run story.
+S6	C4.4	message	Reword the second paragraph and fix typos	sweep	sweep	A commit message that describes the edit.
+S7	C4.4	cases/S7.md	Ask <client> (a seven-letter shipping firm in Leith) for the key.	sweep	sweep	A placeholder its sentence gives back.
+S8	C4.4	cases/S8.md	The owner calls it "a bit of a mess" in reviews.	sweep	sweep	A short lower-case quoted phrase given as the owner's.
+S9	C4.4	cases/S9.md	The owner said the north gate should stay closed on Sundays.	sweep	sweep	Reported speech without quotes.
+X1	C4.2	scenario	C0 with a claude on PATH that exits 1 and prints nothing.	exit 2	exit 1	The sweep batch could not be checked.
+X2	C6.2	scenario	tree after cases/C0.md is changed in the working copy to hold V1's line, not staged.	pass	real value	tree reads the commit.
+X3	C6.3	scenario	tree over a tracked file at notes/harbour plan.md holding V2's line.	real value	pass	A path with a space is read whole.
+X4	C6.4	scenario	staged with a git on PATH that counts git grep calls against HEAD.	1	2	HEAD's text is read once.

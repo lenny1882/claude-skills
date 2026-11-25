@@ -1,0 +1,3 @@
+# Extended regular expressions, matched case-insensitively (C1.2). Invented.
+corvane-[a-z]+-prod
+\bhalvesend\b

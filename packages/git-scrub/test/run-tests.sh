@@ -19,6 +19,13 @@ no(){ printf '  FAIL  %s\n    %s\n' "$1" "$2"; fail=$((fail+1)); }
 
 . "$REPO/test/installer-tests.sh"
 
+echo "planted-case set"
+if "$REPO/test/cases/check-cases.sh" >/dev/null 2>&1; then
+  ok "test/cases is well formed and covers BACKLOG item 6"
+else
+  no "test/cases is well formed and covers BACKLOG item 6" "see ${TMPDIR:-/tmp}/check-cases.log"
+fi
+
 echo "behaviour"
 # TODO: the tests that actually matter. Feed the thing its real input and check
 # what it does — an installer test proves nothing about whether it works.

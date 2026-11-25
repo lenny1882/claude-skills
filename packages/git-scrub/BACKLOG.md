@@ -51,7 +51,7 @@ checker's, whose run writes to another project's clone: one pass over the prompt
 against a 200-line diff, and one lookup over the transcripts. E10 has the budget and the
 measured figures; the paraphrase rule is still to be timed.
 
-## 6. Build the planted-case set for the differential test — **OPEN, raised 14 Nov 2026**
+## 6. Build the planted-case set for the differential test — **DONE 25 Nov 2026**
 
 For D3. One case per value source, label, category, boundary case in C1.3, and one for each
 of the four fixes: a forced sweep failure, a modified working-copy file, a tracked path
@@ -66,6 +66,36 @@ output I pasted, neither of which git-scrub reports (C3.2). And for E3's measure
 acceptance: the invented set of 200 typed prompts and the invented 2,000-line docs tree that
 quotes none of them, built to hold stock phrases of 5 and 6 words and quoted tool output, so
 the false-hit counts mean something.
+
+Built in `test/cases/`:
+- `cases.tsv`: 80 rows, one per case, each with the requirement it serves, where it goes
+  (a file, the message, or a scenario), the line, git-scrub's expected categories and the
+  commit checker's (`-` where the commit checker can't take the case: an ERE or literal
+  source, the repo labels, the sweep's test categories, public-repo-off runs).
+- `sources/`: the invented values (literal, ERE, a build-inputs-shaped JSON file, a Slack
+  export), `sources.tsv` with the jq expression and kind for each JSON source, the
+  allowlist, the repo labels, a message-line pattern and test categories.
+- `prompts/`: a prompt log and transcripts for two projects, with a subagent transcript,
+  Claude reply text, a tool call's input, a tool's output and a pasted prompt.
+- `make-corpus.sh`: the 200 prompts, their transcript and the 2,000-line docs tree, the
+  same bytes on every build.
+- `check-cases.sh`: the manifest's shape, a case for each requirement and label, every
+  fixture parsing, every jq source running, and the corpus repeating. `run-tests.sh`
+  runs it.
+
+The commit checker, run over the set in a temp repo with its prompt directory filled from
+`prompts/`, gives the `checker` column on 54 of 55 file and message rows; V12 adds the
+scratch-path label when the export path is under `/tmp/claude-<uid>`, which the case's
+note now says. Its four fix scenarios come out as the column says: exit 1 on a sweep that
+exits 1 (X1), a working-copy-only value found by `tree` (X2), a value in a path with a
+space missed (X3), two `git grep` calls against HEAD (X4).
+
+Seen failing first: with a row cut to 6 fields, the Claude scratch path label's only case
+set to `pass`, and a malformed line added to the prompt log, `check-cases.sh` failed
+exactly "every row has 7 fields", "a case for the label: Claude scratch path" and "every
+line parses: prompts/history.jsonl", 67 passed and 3 failed.
+
+`shellcheck` is not installed on this machine, so D9 is not yet run over these scripts.
 
 ## 12. Cut E3's remaining false hits in code — **OPEN, raised 25 Nov 2026**
 
