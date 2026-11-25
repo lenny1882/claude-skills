@@ -347,3 +347,28 @@ package and config in place; `--keep-state` removes the package and keeps the co
 reinstall finds it. Seen failing first: with the refusal removed, all three failed, the
 config being deleted by the first.
 
+## 20. Write hook — **DONE 25 Nov 2026** for E12, C12.1 to C12.4
+
+`git scrub write-hook` (`PostToolUse`, every tool) and `git scrub write-hook-end`
+(`SessionEnd`), registered by `manifest.sh`'s `settings_merge`. Outside an enabled public
+repo the hook returns at once. Inside, it lists every uncommitted line, keeps those not
+in the session's saved diff (`.git/scrub/seen-<session>`, mode 0600), runs them through
+`git scrub text`, and answers with a block decision whose reason names each file, line and
+rule. `test/write-hook-tests.sh` feeds it the JSON Claude Code sends: a Write holding a
+6-word typed clause, an Edit adding a dated attribution and a Bash heredoc appending a
+release line are each reported; the report never holds the wording; an unfixed line is
+not reported again; a clean write produces nothing; the saved diff is mode 0600 and
+removed at session end; 200 new lines took 947 ms against E10's 1 s; a repo not marked
+public took 16 ms and one not enabled 15 ms, both under 50 ms. 181 passed, 1 failed, the
+one being the live sweep checks, left out of this run.
+
+The 200-line case is within 6% of its budget, nearly all of it reading the prompt log
+(item 14's 0.65 s): E10 is still to be confirmed on a quiet machine.
+
+Seen failing first, each fault planted in a copy of the package:
+- No saved diff kept: "not reported again" and "a clean write produces nothing" failed.
+- The matched text left in the report: "the report never holds the wording" failed.
+- The public-repo check removed: "not public: nothing within 50 ms" failed. The first
+  version of that test kept only the last of five timed calls' output, by which time the
+  line had been seen, and missed the fault; it now checks the first call.
+

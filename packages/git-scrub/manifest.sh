@@ -19,12 +19,19 @@ FILES=(
 # See reference/layout.md.
 STATE_DIRS=()
 
-# No settings entries for a skill. Leaving this undefined is what tells
-# install.sh to skip settings.json entirely.
-# settings_merge() { :; }
+# E12: the write hook after every tool call, and its clean-up when a session ends.
+settings_merge() {
+  jq --arg post "~/.local/bin/git-scrub write-hook" --arg fin "~/.local/bin/git-scrub write-hook-end" '
+    .hooks //= {}
+    | .hooks.PostToolUse = ((.hooks.PostToolUse // []) + [{ matcher: "*", hooks: [{ type: "command", command: $post }] }])
+    | .hooks.SessionEnd = ((.hooks.SessionEnd // []) + [{ hooks: [{ type: "command", command: $fin }] }])
+  '
+}
 
 REGISTRATIONS=(
-  "skills/git-scrub (no settings entry needed)"
+  "skills/git-scrub"
+  "PostToolUse (every tool): git-scrub write-hook"
+  "SessionEnd: git-scrub write-hook-end"
 )
 
 # EDIT, or delete. Confirm the installed skill is well formed — a SKILL.md with

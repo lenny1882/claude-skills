@@ -41,6 +41,7 @@ chmod 755 "$TMP/fakebin/claude"; export FAKE_CLAUDE_DIR=$TMP; export PATH="$TMP/
 
 . "$REPO/test/stage1-tests.sh"
 . "$REPO/test/wording-tests.sh"
+. "$REPO/test/write-hook-tests.sh"
 . "$REPO/test/e8-tests.sh"
 . "$REPO/test/history-tests.sh"
 . "$REPO/test/rewrite-tests.sh"

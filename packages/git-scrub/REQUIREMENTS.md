@@ -435,7 +435,10 @@ finishes within E10's budget.*
 - **C12.1 The hook.** A `PostToolUse` hook on every tool, registered by git-scrub's own
   `manifest.sh`. It returns at once outside an enabled public repo. Inside one, it diffs the
   working tree against what it saw after the previous tool call (the index and HEAD on the
-  first call of a session), and passes only the new and changed lines on.
+  first call of a session), and passes only the new and changed lines on. A line is
+  matched by its path and text, so one that only moved is not new. Untracked text files
+  count in full. A `SessionEnd` hook removes the session's saved diff; `install.sh`
+  registers both through `settings_merge`.
 - **C12.2 The check.** `git scrub text` reads lines with their file and line number on
   stdin and runs stage 1 only: E3's runs, clauses and paraphrase with C3.2's lookup on a
   hit, the same as at commit, C1.4's labels including
