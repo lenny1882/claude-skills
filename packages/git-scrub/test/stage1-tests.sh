@@ -38,7 +38,7 @@ stage1_rows() { # the file rows stage 1 alone decides
 
 echo "stage 1 (E1, C1, E5) over the planted cases"
 R=$TMP/r1
-cfg=$(new_repo "$R" $'public=1\nfigures=1')
+cfg=$(new_repo "$R" $'public=1\nfigures=1\nwording=0')
 mkdir -p "$R/cases"
 stage1_rows | gawk -F'\t' -v ex="/data/exports/slack-archive" -v r="$R" '{ t = $4; gsub(/@EXPORT@/, ex, t); print t > (r "/" $3) }'
 git -C "$R" add cases
@@ -74,7 +74,7 @@ got=$(cd "$R" && "$GS" staged 2>&1 | by_case | gawk -F'\t' '$1 ~ /^N[14]$/' | wc
 
 echo "E1 acceptance: commits through the hooks"
 R=$TMP/r2
-cfg=$(new_repo "$R" $'public=1\nfigures=1')
+cfg=$(new_repo "$R" $'public=1\nfigures=1\nwording=0')
 out=$(cd "$R" && "$GS" enable 2>&1); rc=$?
 [ "$rc" = 0 ] && ok "enable" || no "enable" "exit $rc: $out"
 head0=$(git -C "$R" rev-parse HEAD)

@@ -216,3 +216,22 @@ over a repo's `core.hooksPath` (C8.7) and in a repo with no commits (C8.3). Stil
 for E8: `pre-push` and C8.6's passed-commit list, C8.3's shallow-clone step, and putting
 `git-scrub` on `PATH` (P2).
 
+## 14. Wording — **DONE 25 Nov 2026** for E3, C3.1 to C3.6
+
+`skill/lib/wording.awk` finds 6-word runs, whole typed clauses of 5+ words and
+paraphrases against the prompt log; `skill/lib/lookup.awk` rules out what Claude, a tool
+or a subagent produced first, reading the prompt's own session and then one search over
+the other transcripts, only for lines that hit. `test/wording-tests.sh` runs the 14
+planted wording rows, the public-default, off-elsewhere, `wording=1` and `run_length=8`
+scenarios, exit 2 with no prompt log, and the log holding no wording: 99 passed, 0 failed
+with stage 1's tests.
+
+Seen failing first, each fault planted in a copy of the package:
+- The C3.2 lookup skipped: W7, W8, W9 and W10 failed, 95 passed and 4 failed.
+- The run length set to 7: W1 and the `wording=1` scenario (which uses W1) failed, 97
+  passed and 2 failed.
+- Pasted text read into the prompts: W11 failed, 98 passed and 1 failed.
+
+Still open for E3: the measured acceptance over the corpus (item 6's 200 prompts and
+2,000 doc lines), and E10's timing of one lookup.
+

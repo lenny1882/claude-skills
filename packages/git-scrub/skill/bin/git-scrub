@@ -21,6 +21,8 @@ STATE=${GIT_SCRUB_STATE:-${CLAUDE_DIR:-$HOME/.claude}/skills/git-scrub/state}
 GREP=/usr/bin/grep; [ -x "$GREP" ] || GREP=$(command -v grep)
 DICTS=(/usr/share/dict/british-english /usr/share/dict/american-english)
 HOOKS=(pre-commit commit-msg)
+CDIR=${CLAUDE_DIR:-$HOME/.claude}
+PROJ=$CDIR/projects
 
 sub=${1:-}; [ $# -gt 0 ] && shift
 tmplog="${TMPDIR:-/tmp}/git-scrub-${sub:-none}.log"
@@ -89,10 +91,76 @@ message_lines() { # FILE
   gawk '{ if ($0 !~ /^#/) print "commit message:" NR "\t" $0 }' "$1"
 }
 
+# E3, C3.1: every typed prompt, as ms<TAB>session<TAB>text, oldest first. Pasted text is
+# never read; newlines become \036.
+prompts() {
+  local f extra
+  extra=$(setting prompt_logs "")
+  for f in "$CDIR/history.jsonl" ${extra//,/ }; do
+    [ -s "$f" ] && [ -r "$f" ] || die "wording is on but the prompt log $f is missing, unreadable or empty"
+    jq -R -r '(fromjson? // empty) | select(type == "object" and (.display | type) == "string")
+      | [(.timestamp | tostring), (.sessionId // "" | tostring),
+         (.display | gsub("\\[Pasted text #[0-9]+[^\\]]*\\]"; " ") | gsub("\t"; " ") | gsub("\n"; "\u001e"))]
+      | join("\t")' "$f"
+  done | sort -s -n -k1,1
+}
+
+# C3.2: what Claude, its tools and subagents produced before MS, from the files given.
+produced() { # ms file...
+  local ms=$1; shift
+  [ $# -gt 0 ] || return 0
+  jq -R -r --argjson ms "$ms" '(fromjson? // empty) | select(type == "object")
+    | ((.timestamp // "") | if . == "" then null else (sub("\\.[0-9]+Z$"; "Z") | try fromdateiso8601 catch null) end) as $t
+    | select($t != null and ($t * 1000) < $ms)
+    | if (.isSidechain // false) or .type == "assistant" then (.message.content? // empty | .. | strings)
+      elif .type == "user" then (.message.content? | arrays | .[] | select(type == "object" and .type == "tool_result") | .. | strings)
+      else empty end
+    | gsub("\n"; "\u001e")' "$@" 2>/dev/null
+}
+
+# E3: candidate hits from wording.awk, less those C3.2 rules out, appended to found.
+wording() {
+  [ -d "$PROJ" ] && [ -r "$PROJ" ] || die "wording is on but the transcript folder $PROJ is missing or unreadable"
+  prompts > "$work/prompts" || exit 2
+  [ -s "$work/prompts" ] || die "wording is on but no prompt could be read from $CDIR/history.jsonl"
+  gawk -v runlen="$(setting run_length 6)" -v floor="$(setting clause_floor 5)" -f "$LIB/wording.awk" \
+    "$LIB/stop.txt" "$work/prompts" "$work/head" "$work/lines" > "$work/cands" || die "the wording check failed"
+  [ -s "$work/cands" ] || return 0
+  : > "$work/ruled"
+  local pid ms session files key pat k
+  for pid in $(cut -f6 "$work/cands" | sort -un); do
+    IFS=$'\t' read -r ms session _ < <(sed -n "${pid}p" "$work/prompts")
+    gawk -F'\t' -v p="$pid" '$6 == p { print $4 "\t" $5 }' "$work/cands" | sort -u > "$work/keys"
+    # 1: the session the prompt was typed in, with its subagents.
+    mapfile -t files < <(find "$PROJ" \( -path "*/$session.jsonl" -o -path "*/$session/subagents/*.jsonl" \) -type f 2>/dev/null)
+    produced "$ms" "${files[@]}" | gawk -f "$LIB/lookup.awk" "$work/keys" "$LIB/stop.txt" - > "$work/r1"
+    gawk -F'\t' -v p="$pid" '{ print p "\t" $0 }' "$work/r1" >> "$work/ruled"
+    # 2: one search per key still standing over every other transcript.
+    while IFS=$'\t' read -r k key; do
+      /usr/bin/grep -q -x -F "$k	$key" "$work/r1" && continue
+      if [ "$k" = para ]; then
+        pat=$(tr ' ' '\n' <<< "$key" | gawk '{ print length, $0 }' | sort -rn | head -1 | cut -d' ' -f2)
+        mapfile -t others < <("$GREP" -r -l -i -F --include='*.jsonl' -e "$pat" "$PROJ" 2>/dev/null)
+      else
+        sep='([^a-z0-9'"'"']|\\[nt])+'; pat=${key// /$sep}
+        mapfile -t others < <("$GREP" -r -l -i -E --include='*.jsonl' -e "$pat" "$PROJ" 2>/dev/null)
+      fi
+      [ ${#others[@]} -gt 0 ] || continue
+      printf '%s\t%s\n' "$k" "$key" > "$work/key1"
+      produced "$ms" "${others[@]}" | gawk -f "$LIB/lookup.awk" "$work/key1" "$LIB/stop.txt" - \
+        | gawk -F'\t' -v p="$pid" '{ print p "\t" $0 }' >> "$work/ruled"
+    done < "$work/keys"
+  done
+  gawk -F'\t' 'ARGIND == 1 { ruled[$1 "\t" $2 "\t" $3] = 1; next }
+    !(($6 "\t" $4 "\t" $5) in ruled) && !(($1 "\t" $2) in done) { done[$1 "\t" $2] = 1; print $1 "\t" $2 "\t" $3 }' \
+    "$work/ruled" "$work/cands" >> "$work/found"
+}
+
 # Runs stage 1 over $work/lines, prints the findings, logs counts, and exits.
 check() { # mode
-  local mode=$1 figures n counts
+  local mode=$1 figures n counts words
   figures=0; case $mode in staged|message|text) [ "$(setting figures 0)" = 1 ] && figures=1 ;; esac
+  words=$(setting wording "$(setting public 0)")   # E3: opt-in, on by default in a public repo
   values > "$work/values" || exit 2
   cat "${DICTS[@]}" 2>/dev/null > "$work/dict"
   cat "$LIB/common.txt" "$cfg/common.txt" 2>/dev/null > "$work/common"
@@ -100,7 +168,7 @@ check() { # mode
   labels > "$work/labels"
   cat "$cfg/message-lines.ere" 2>/dev/null > "$work/msglines"
   : > "$work/head"
-  if [ "$figures" = 1 ] && git rev-parse -q --verify HEAD >/dev/null; then
+  if { [ "$figures" = 1 ] || [ "$words" = 1 ]; } && git rev-parse -q --verify HEAD >/dev/null; then
     git grep -I -h -e . HEAD > "$work/head" 2>/dev/null   # C6.4: once per run
   fi
   gawk -v mode="$mode" -v figures="$figures" -f "$LIB/stage1.awk" \
@@ -113,6 +181,7 @@ check() { # mode
         { n = $1; m = substr($0, length(n) + 2); if (!(tolower(m) in allow)) print w[n] "\tpattern\t" m }' \
         "$work/allow" "$work/lines" - >> "$work/found"
   fi
+  [ "$words" = 1 ] && wording
   n=$(wc -l < "$work/found"); counts=$(cut -f2 "$work/found" | sort | uniq -c | gawk '{ c = $1; $1 = ""; printf "%s%s x%d", (NR > 1 ? "," : ""), substr($0, 2), c }')
   printf '%s %s: %d line(s), %d finding(s)%s\n' "$(date -u +%FT%TZ)" "$mode" "$(wc -l < "$work/lines")" "$n" "${counts:+: $counts}" \
     | tee -a "$cfg/log" >> "$tmplog"

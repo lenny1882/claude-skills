@@ -1,0 +1,9 @@
+# Stop words for the paraphrase rule (C3.3), the same list as the commit checker's.
+a an the and or but if then so to of in on at by for with from as is are was were be
+been being it its this that these those there here i you he she we they me him her us
+them my your his our their not no yes do does did done have has had will would can
+could should shall may might must just also only very more most less some any all each
+every one two what which who whom whose when where why how than too into out up down
+over about after before again once because while until both either neither nor own
+same such other another per via let lets get got make made use used using need needs
+want wants i'm i've i'd it's don't isn't that's we'll you're can't won't

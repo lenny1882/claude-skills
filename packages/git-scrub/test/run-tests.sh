@@ -27,6 +27,7 @@ else
 fi
 
 . "$REPO/test/stage1-tests.sh"
+. "$REPO/test/wording-tests.sh"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" = 0 ]

@@ -151,7 +151,11 @@ length and the floor kept or changed on that count.*
      `~/.claude/projects/`, for text copied in from another session, then a read of only
      the files it names.
 
-  Malformed lines are skipped. A line with no hit at C3.1 reads no transcript. Text I paste back from a doc Claude wrote,
+  A run or clause is held when its words appear in a row in that text. A paraphrase is
+  held when one clause there holds every content word the line shares with my sentence,
+  so a sentence of Claude's I typed back with a word added is not mine. *Differs from the
+  commit checker, which rules a sentence out only when Claude wrote the same content words
+  exactly.* Malformed lines are skipped. A line with no hit at C3.1 reads no transcript. Text I paste back from a doc Claude wrote,
   from an error message or from a command's output is therefore not my wording. Claude
   Code deletes transcripts after `cleanupPeriodDays`, so Claude text I paste back after its
   transcript is gone can be reported as mine.
@@ -311,7 +315,7 @@ commit the push sends is checked again.*
   a tracked file. Each repo's config is a folder at `~/.claude/skills/git-scrub/state/<id>/`,
   the claude-package-kit state path for a skill, which survives installs and upgrades.
   Its files, each optional: `settings` (`key=value` lines: `public`, `figures`,
-  `labels_off`), `values.txt` (literal values, flagged even when they are words),
+  `labels_off`, `wording`, `run_length`, `clause_floor`, `prompt_logs`), `values.txt` (literal values, flagged even when they are words),
   `patterns.ere`, `sources.tsv` (`file<TAB>kind<TAB>jq expression`, kind `whole`, `people`
   or `always`, a relative file read from the folder), `allow.txt`, `labels.tsv`
   (`name<TAB>sensitive|insensitive<TAB>ERE`), `common.txt` (words never flagged on their
