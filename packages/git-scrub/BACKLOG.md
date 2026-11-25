@@ -338,3 +338,12 @@ Seen failing first, each fault planted in a copy of the package:
 - Blobs not rewritten: the clean-history check, three values' traces and the placeholder
   check failed.
 
+## 19. Uninstall keeps the config — **DONE 25 Nov 2026** for C8.5 and E8's uninstall-and-reinstall case
+
+`pre_uninstall` in `manifest.sh` refuses, with nothing removed, while the skill's
+`state/` holds any repo's config, unless `--keep-state` is given or `delete` is typed.
+`test/uninstall-tests.sh`: `uninstall.sh --yes` with no terminal refuses and leaves the
+package and config in place; `--keep-state` removes the package and keeps the config; a
+reinstall finds it. Seen failing first: with the refusal removed, all three failed, the
+config being deleted by the first.
+

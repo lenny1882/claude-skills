@@ -376,7 +376,8 @@ commit the push sends is checked again.*
   and hooks exactly.
 - **C8.5 Uninstalling keeps the config.** git-scrub's uninstall refuses to remove `state/`
   while it holds any repo's config, unless given `--keep-state` or a confirmation typed at
-  the prompt.
+  the prompt (the word `delete`; `--yes` does not count, and with no terminal the answer
+  is no). It is the manifest's `pre_uninstall`, so it runs before anything is removed.
 - **C8.2 The skill.** Covers enabling and disabling, adding values, patterns, labels and
   allowlist entries, reading a block, running an audit, and the rewrite with its outward
   steps. It never runs a force-push or contacts a host's support.

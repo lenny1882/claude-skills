@@ -102,13 +102,22 @@ verify_probe() {
 # release and run the daily check. Set this to 0 to leave that out.
 # UPDATE_NOTICE=0
 
-# Optional. Runs in uninstall.sh before anything is removed, while the files
-# are still installed: stop services started from the package's directory.
-# Non-zero stops the uninstall with nothing removed. Skipped when
-# KIT_SKIP_MACHINE_HOOKS=1 (the tests set it).
-# pre_uninstall() {
-#   systemctl --user stop "$PKG.service" 2>/dev/null || true
-# }
+# C8.5: uninstalling would delete every repo's config (state/ in the skill). Refuse
+# unless --keep-state was given or "delete" is typed at the prompt; --yes does not count,
+# and with no terminal to ask on, the answer is no. Non-zero stops the uninstall with
+# nothing removed.
+pre_uninstall() {
+  local st="$CLAUDE_DIR/skills/$PKG/state" n reply
+  [ "${KEEP_STATE:-0}" -eq 1 ] && return 0
+  n=$(find "$st" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
+  [ "$n" -gt 0 ] || return 0
+  printf 'git-scrub: %s holds the config of %d repo(s): their forbidden lists, allowlists and maps.\n' "$st" "$n" >&2
+  printf 'Run ./uninstall.sh --keep-state to keep them, or type delete to remove them: ' >&2
+  read -r reply </dev/tty 2>/dev/null || reply=""
+  [ "$reply" = delete ] && return 0
+  echo "git-scrub: the config is kept; nothing was removed." >&2
+  return 1
+}
 
 # Optional. Runs in uninstall.sh after everything is removed, to undo a change
 # outside $HOME that needs none of the package's files. Skipped when
