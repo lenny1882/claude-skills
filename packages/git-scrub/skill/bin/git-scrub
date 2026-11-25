@@ -6,9 +6,12 @@
 #   git scrub push [TIP ARGS] check what a push sends: pre-push ref lines on stdin, or
 #                             TIP and rev-list ARGS naming the new commits
 #   git scrub tree [COMMIT]   check every line of every tracked file at COMMIT (HEAD)
-#   git scrub history [--sweep]  check every blob ever committed, every commit message,
-#                             author and committer; --sweep also sends each distinct line
-#                             to the model once
+#   git scrub history [--sweep|--map]  check every blob ever committed, every commit
+#                             message, author and committer; --sweep also sends each
+#                             distinct line to the model once; --map writes a starting
+#                             replacement map from the findings
+#   git scrub rewrite         replace the mapped values through the whole history, rewrite
+#                             identities, drop paths and delete message lines; never pushes
 #   git scrub text            check where<TAB>text lines on stdin
 #   git scrub enable          install the hooks in this repo, chained to its own
 #   git scrub disable         put the repo's hooks back as they were
@@ -440,6 +443,56 @@ disable() {
   echo "git-scrub: disabled; the config is kept"
 }
 
+# C7.2: a starting map from history's findings, one placeholder per distinct value,
+# numbered by category, for editing before rewrite. Wording, paraphrase and figure findings
+# get none (C7.3). Written to map.tsv, or map.new.tsv when map.tsv exists.
+write_map() {
+  local out=$cfg/map.tsv; [ -e "$out" ] && out=$cfg/map.new.tsv
+  gawk -F'\t' '$2 !~ /wording|figure|sweep|identity/ && !(tolower($3) in seen) {
+      seen[tolower($3)] = 1; c = ($2 == "real value") ? "name" : $2; gsub(/[^a-z0-9]+/, "-", c); gsub(/^-|-$/, "", c)
+      printf "%s\t[%s-%02d]\n", $3, c, ++n[c] }' "$work/found" > "$out"
+  echo "git-scrub: wrote $(wc -l < "$out") value(s) to $out; edit the placeholders before git scrub rewrite" >&2
+}
+
+# E7, C7.1 to C7.5: rewrite the whole history in place, after a bundle backup.
+rewrite() {
+  local gd old new bundle ident
+  gd=$(git rev-parse --absolute-git-dir)
+  [ -z "$(git status --porcelain --untracked-files=no)" ] || die "the working tree has changes; commit or stash them first"
+  [ -s "$cfg/map.tsv" ] || [ -s "$cfg/message-lines.ere" ] || [ -s "$cfg/drop-paths.txt" ] || [ -n "$(gawk -F= '$1 == "identity"' "$cfg/settings" 2>/dev/null)" ] \
+    || die "nothing to rewrite: no map.tsv, message-lines.ere, drop-paths.txt or identity in $cfg"
+  mkdir -p "$gd/scrub"; bundle=$gd/scrub/rewrite-$(date -u +%Y%m%dT%H%M%SZ).bundle
+  git bundle create "$bundle" --all 2>/dev/null || die "could not write the backup bundle $bundle"
+  chmod 600 "$bundle"
+  ident=$(gawk -F= '$1 == "identity" { print substr($0, 10); exit }' "$cfg/settings" 2>/dev/null)
+  printf '%s\n' "$ident" > "$work/ident"
+  old=$(git rev-list --max-parents=0 HEAD | sort | head -1)
+  git -c core.quotePath=false fast-export --all --signed-tags=strip --tag-of-filtered-object=drop --reencode=yes \
+    | LC_ALL=C gawk -v map="$cfg/map.tsv" -v msgre="$cfg/message-lines.ere" -v drop="$cfg/drop-paths.txt" -v ident="$work/ident" \
+        -f "$LIB/rewrite.awk" \
+    | git fast-import --force --quiet || die "the rewrite failed; the old history is in $bundle"
+  git reset -q --hard
+  new=$(git rev-list --max-parents=0 HEAD | sort | head -1)
+  if [ "$new" != "$old" ]; then   # C8.3: the config follows the new root hash
+    [ -e "$STATE/$new" ] && die "the rewritten root $new already has a config folder; $cfg was left where it is"
+    mv "$STATE/$old" "$STATE/$new"; cfg=$STATE/$new; git config scrub.id "$new"
+  fi
+  rm -f "$cfg/passed"
+  echo "git-scrub: history rewritten; the old history is in $bundle"
+  ( "$self" history ); rc=$?
+  cat >&2 <<STEPS
+
+What only you can do now:
+  1. Check the rewritten history, then force-push every rewritten ref.
+  2. Re-clone every other clone; an old clone pushed again brings the old history back.
+  3. Ask the host (GitHub Support; Bitbucket support) to purge cached views and old
+     commits reachable by SHA.
+  4. Delete $bundle once the pushed refs are checked: git gc never removes it.
+STEPS
+  [ "$rc" = 0 ] || { echo "git-scrub: the history is not clean yet; the findings above need a hand edit or a map entry" >&2; exit 1; }
+  exit 0
+}
+
 # C8.6: pre-commit and commit-msg leave a mark when they pass; post-commit records the new
 # commit as passed only if both marks are for it, so --no-verify leaves it off the list.
 mark() { local gd; gd=$(git rev-parse --absolute-git-dir); mkdir -p "$gd/scrub"; echo "$gd/scrub/pending"; }
@@ -480,11 +533,13 @@ case $sub in
            fi
            push_check ;;
   history) cfg=$(config_dir) || exit 2; prepare; history_lines > "$work/lines"; scan history "$work/lines"; history_identities
+           [ "${1:-}" = --map ] && write_map
            if [ "${1:-}" = --sweep ] && [ ! -s "$work/found" ]; then   # C6.5: each distinct line once
              gawk -F'\t' '!(substr($0, index($0, "\t") + 1) in seen) { seen[substr($0, index($0, "\t") + 1)] = 1; print }' "$work/lines" > "$work/distinct"
              [ -s "$work/prompts" ] || [ "$words" != 1 ] || prompts > "$work/prompts"; sweep "$work/distinct"
            fi
            report history ;;
+  rewrite) cfg=$(config_dir) || exit 2; rewrite ;;
   hook-pre-commit)
            p=$(mark); rm -f "$p"; ( "$self" staged ) || exit $?
            cfg=$(config_dir) || exit 2; printf '%s\t-\t%s\n' "$(git write-tree)" "$(config_hash)" > "$p" ;;

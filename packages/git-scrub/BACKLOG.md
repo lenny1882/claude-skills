@@ -318,3 +318,23 @@ Seen failing first, each fault planted in a copy of the package:
 A fault reading each blob once per path went unseen: `rev-list --objects` already gives
 each blob once, at its first path.
 
+## 18. History rewrite — **DONE 25 Nov 2026** for E7, C7.1 to C7.5, and E8's after-a-rewrite case
+
+`git scrub rewrite` refuses on a dirty tree, writes `.git/scrub/rewrite-<date>.bundle`
+at mode 0600, pipes `git fast-export --all` through `skill/lib/rewrite.awk` into `git
+fast-import`, resets the working tree, moves the config to the new root hash and clears
+its passed list, then runs `history` and lists the outward steps. `history --map` writes
+a starting `map.tsv` with numbered placeholders. `test/rewrite-tests.sh` runs E7's
+acceptance: values in three commits' blobs, one message and one author, a trailer in two
+messages, and a dropped directory; after the rewrite no trace of any value, each reading
+as its placeholder, no trailer, the rest of each message unchanged, the path in no
+commit, every identity rewritten, the bundle restoring the old history and not sent by a
+push; plus C7.3's wording case. 166 passed, 1 failed, the one being the live sweep checks,
+left out of this run.
+
+Seen failing first, each fault planted in a copy of the package:
+- Message lines not deleted: the trailer and the unchanged-message checks failed.
+- Paths not dropped: "the dropped path is in no commit" failed.
+- Blobs not rewritten: the clean-history check, three values' traces and the placeholder
+  check failed.
+

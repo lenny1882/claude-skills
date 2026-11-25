@@ -283,6 +283,11 @@ send it; a dirty working tree makes `rewrite` refuse before doing anything.*
   config. The placeholder is any text, readable ones included (`<user>`, `client_a`).
   `git scrub history --map` writes a starting map from the findings, with placeholders
   numbered by category (`[name-01]`, `[repo-03]`), for me to edit before `rewrite`.
+- **C7.2a What else it rewrites.** Every author and committer becomes the repo's first
+  `identity` setting, where it has one. Each path in `drop-paths.txt` (a trailing `/`
+  drops a directory) is removed from every commit. Values are replaced where no ASCII
+  letter or digit is either side, longest first; the stream is read as bytes, so only
+  ASCII letters match regardless of case. A binary blob is passed through unchanged.
 - **C7.3 What it won't replace.** Wording, paraphrase and activity-figure findings have no
   placeholder; `rewrite` lists them by commit and path for a hand edit and refuses to call
   the history clean while any remain.
@@ -328,7 +333,8 @@ commit the push sends is checked again.*
   `patterns.ere`, `sources.tsv` (`file<TAB>kind<TAB>jq expression`, kind `whole`, `people`
   or `always`, a relative file read from the folder), `allow.txt`, `labels.tsv`
   (`name<TAB>sensitive|insensitive<TAB>ERE`), `common.txt` (words never flagged on their
-  own, added to the built-in list), `message-lines.ere`, and `log`.
+  own, added to the built-in list), `message-lines.ere`, `map.tsv` and `drop-paths.txt`
+  (E7), `log` and `passed` (C8.6).
 - **C8.3 A repo's id is its root commit hash.** The first of `git rev-list
   --max-parents=0 HEAD` in sorted order. It does not change with the remote URL, the
   repo's name, its host, the number of remotes, or the checkout's path. Each run looks the
