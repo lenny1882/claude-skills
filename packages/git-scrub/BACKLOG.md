@@ -232,6 +232,19 @@ Seen failing first, each fault planted in a copy of the package:
   passed and 2 failed.
 - Pasted text read into the prompts: W11 failed, 98 passed and 1 failed.
 
-Still open for E3: the measured acceptance over the corpus (item 6's 200 prompts and
-2,000 doc lines), and E10's timing of one lookup.
+E3's measured acceptance, from `test/measure-e3.sh` over the corpus, whose 2,000 doc
+lines are tracked in the measured repo and quote none of its 200 prompts, so every hit
+is false. One in eight prompts opens with a stock phrase as a clause of its own, one in
+eight has one inline, one in five pastes back a tool output line its transcript printed.
+False hits, each rule on its own:
+- runs of 5: 274; runs of 6: 88, 76 of them three 6-word stock phrases and 1 a chance
+  run of the corpus's small vocabulary; runs of 8: 0;
+- whole clauses of 4+: 247; of 5+: 160, all 5- and 6-word stock phrases typed as their
+  own clause; of 6+: 76, the same ones runs of 6 catch;
+- paraphrase: 0, once the repo's common words are removed (C3.3);
+- the defaults together (runs of 6, clauses of 5+, paraphrase): 172.
+No pasted-back tool output line was reported, so C3.2 ruled all of them out. The run
+length stays 6 and the clause floor stays 5: shorter runs and a floor of 4 add false
+hits, longer runs miss quotes, and a floor of 6 catches nothing runs of 6 don't.
+Each of the eight runs took about 3 s over 2,000 lines; E10's lookup timing is still open.
 

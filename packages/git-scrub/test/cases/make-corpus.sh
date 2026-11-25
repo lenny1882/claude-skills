@@ -4,8 +4,9 @@
 #   DIR/projects/-work-corpus/s-c1.jsonl    their transcript, with tool output printed
 #                                           before the prompts that paste it back
 #   DIR/docs/doc-NN.md                      40 files of 50 lines, 2,000 lines in all
-# The docs quote none of the prompts. Both share stock phrases of 5 and 6 words and
-# tool output lines, so the false hits counted over them mean something.
+# The docs quote none of the prompts. Both share stock phrases of 4 to 6 words, some
+# typed as a clause of their own, and tool output lines, so the false hits counted over
+# them mean something.
 # usage: make-corpus.sh DIR
 set -euo pipefail
 dir=${1:?usage: make-corpus.sh DIR}
@@ -30,7 +31,8 @@ BEGIN {
   hist = dir "/history.jsonl"; tr = dir "/projects/-work-corpus/s-c1.jsonl"
   for (i = 1; i <= 200; i++) {
     p = sentence()
-    if (i % 4 == 0) p = S[int(rand() * ns) + 1] " " p
+    if (i % 8 == 0) p = S[int(rand() * ns) + 1] ". " p      # a stock phrase as its own clause
+    else if (i % 4 == 0) p = S[int(rand() * ns) + 1] " " p
     if (i % 5 == 0) {
       out = T[int(rand() * nt) + 1]
       event(tr, "assistant", i * 3, "[{\"type\":\"tool_use\",\"id\":\"tc" i "\",\"name\":\"Bash\",\"input\":{\"command\":\"make\"}}]")
