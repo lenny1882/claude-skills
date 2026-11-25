@@ -310,6 +310,12 @@ commit the push sends is checked again.*
 - **C8.1 Config lives outside every tree.** Nothing that holds a forbidden value is ever in
   a tracked file. Each repo's config is a folder at `~/.claude/skills/git-scrub/state/<id>/`,
   the claude-package-kit state path for a skill, which survives installs and upgrades.
+  Its files, each optional: `settings` (`key=value` lines: `public`, `figures`,
+  `labels_off`), `values.txt` (literal values, flagged even when they are words),
+  `patterns.ere`, `sources.tsv` (`file<TAB>kind<TAB>jq expression`, kind `whole`, `people`
+  or `always`, a relative file read from the folder), `allow.txt`, `labels.tsv`
+  (`name<TAB>sensitive|insensitive<TAB>ERE`), `common.txt` (words never flagged on their
+  own, added to the built-in list), `message-lines.ere`, and `log`.
 - **C8.3 A repo's id is its root commit hash.** The first of `git rev-list
   --max-parents=0 HEAD` in sorted order. It does not change with the remote URL, the
   repo's name, its host, the number of remotes, or the checkout's path. Each run looks the

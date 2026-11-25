@@ -49,7 +49,7 @@ N3	E5	cases/N3.md	In 2025, 40 sessions ran.	pass	pass	A year, and a 2-digit numb
 N4	E5	cases/N4.md	About 17% of messages were short.	new activity figure	new activity figure	A percentage.
 M1	E1	message	Add Quillon Varga to the reviewers	real value	real value	Commit message line.
 M2	C1.1	message	# Quillon Varga	pass	pass	A # line in the message is skipped.
-M3	C7.5	message	Session-Trace: 0042	message line	-	A message-line pattern from config.
+M3	C7.5	message	Session-Trace: a1b2c3	message line	-	A message-line pattern from config.
 W1	C3.6	cases/W1.md	Copper kettles rattle while lamps flicker whenever the tide turns near marble quays.	wording	pass	6 words from the middle of a typed clause; runs of 8 miss it.
 W2	C3.6	cases/W2.md	Copper kettles rattle while lamps flicker whenever the tide shrinks near marble quays.	pass	pass	Only 5 words in a row.
 W3	C3.5	cases/W3.md	Most harbour crews agree nobody trusts the shared calendar here.	wording	pass	A whole typed clause of 5 words.

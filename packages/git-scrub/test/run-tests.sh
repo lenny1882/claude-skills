@@ -26,10 +26,7 @@ else
   no "test/cases is well formed and covers BACKLOG item 6" "see ${TMPDIR:-/tmp}/check-cases.log"
 fi
 
-echo "behaviour"
-# TODO: the tests that actually matter. Feed the thing its real input and check
-# what it does — an installer test proves nothing about whether it works.
-no "behaviour is tested" "no behaviour tests written yet — delete this line once there are"
+. "$REPO/test/stage1-tests.sh"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" = 0 ]

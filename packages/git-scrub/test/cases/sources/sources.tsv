@@ -7,3 +7,4 @@ slack/channels.json	whole	.[] | (.id, .name) | strings
 slack/groups.json	whole	.[] | (.id, .name) | strings
 slack/mpims.json	whole	.[] | (.id, .name) | strings
 slack/dms.json	whole	.[] | (.id, .name) | strings
+build-inputs.json	always	.slack_export // empty

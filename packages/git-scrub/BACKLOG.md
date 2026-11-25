@@ -108,7 +108,9 @@ commit adds it, as E5 does for figures, and count what is left.
 ## 7. Move the public repo onto git-scrub — **OPEN, raised 14 Nov 2026**
 
 For E11. Its values, categories and allowlist move to config; the surname and local
-export-path labels move to its config, out of the built-ins.
+export-path labels move to its config, out of the built-ins. The commit checker's
+common-names list holds more names than git-scrub's built-in one, which keeps only names
+that are also ordinary words; the rest go in that repo's `common.txt`.
 
 ## 8. Move the private repo's push checker onto git-scrub — **OPEN, raised 14 Nov 2026**
 
@@ -192,3 +194,25 @@ In REQUIREMENTS.md: C1.4 (the first name in repo config; three labels for public
 C4.1 (the prompt's fixed instruction and answer format), C4.4 (public-repo labels,
 instruction and categories, commit messages that describe the edit), and D3 (the
 checker's hashes logged; the public repo marked public for the comparison).
+
+## 13. Stage 1 — **DONE 25 Nov 2026** for E1, C1.1 to C1.6, C7.5's message check and E5
+
+`skill/bin/git-scrub` (`staged`, `message`, `text`, `enable`, `disable`, `id`) and
+`skill/lib/stage1.awk`, with the built-in labels in `skill/lib/labels.tsv` and the common
+words in `skill/lib/common.txt`. `test/stage1-tests.sh` runs every planted file and
+message row that stage 1 alone decides (50), the C1.6, C4.4 public-off and E5 opt-in
+scenarios, E1's commit acceptance through the hooks, the log holding no value, and C8.4's
+exit 2 with no config: 78 passed, 0 failed.
+
+Seen failing first, each fault planted in a copy of the package:
+- C1.3's boundary check removed: B3 and B7 failed, 76 passed and 2 failed.
+- The Slack id label deleted: V16 and L9 failed, 76 passed and 2 failed.
+- The allowlist ignored: V15 and "the allowlisted commit is made" failed, and the two
+  clean-commit checks after it, since the refused file stayed staged; 74 passed and 4
+  failed.
+
+Not built yet, and refused with exit 2 and the reason rather than done wrongly: `enable`
+over a repo's `core.hooksPath` (C8.7) and in a repo with no commits (C8.3). Still to do
+for E8: `pre-push` and C8.6's passed-commit list, C8.3's shallow-clone step, and putting
+`git-scrub` on `PATH` (P2).
+
