@@ -3,6 +3,9 @@
 #
 #   git scrub staged          check the staged diff's added lines (pre-commit)
 #   git scrub message FILE    check a commit message, skipping # lines (commit-msg)
+#   git scrub push [TIP ARGS] check what a push sends: pre-push ref lines on stdin, or
+#                             TIP and rev-list ARGS naming the new commits
+#   git scrub tree [COMMIT]   check every line of every tracked file at COMMIT (HEAD)
 #   git scrub text            check where<TAB>text lines on stdin
 #   git scrub enable          install the hooks in this repo, chained to its own
 #   git scrub disable         put the repo's hooks back as they were
@@ -16,11 +19,13 @@ export LC_ALL=C.UTF-8          # C1.6: accented names match the same from any sh
 umask 077
 
 self=$(readlink -f "${BASH_SOURCE[0]}")
-LIB=$(cd "$(dirname "$self")/../lib" && pwd)
+# Run from the skill, lib/ is beside bin/; run from a copy on PATH, it is the skill's.
+LIB=$(cd "$(dirname "$self")/../lib" 2>/dev/null && pwd) || LIB=${CLAUDE_DIR:-$HOME/.claude}/skills/git-scrub/lib
+[ -f "$LIB/stage1.awk" ] || LIB=${CLAUDE_DIR:-$HOME/.claude}/skills/git-scrub/lib
 STATE=${GIT_SCRUB_STATE:-${CLAUDE_DIR:-$HOME/.claude}/skills/git-scrub/state}
 GREP=/usr/bin/grep; [ -x "$GREP" ] || GREP=$(command -v grep)
 DICTS=(/usr/share/dict/british-english /usr/share/dict/american-english)
-HOOKS=(pre-commit commit-msg)
+HOOKS=(pre-commit commit-msg post-commit pre-push)
 CDIR=${CLAUDE_DIR:-$HOME/.claude}
 PROJ=$CDIR/projects
 
@@ -30,22 +35,50 @@ tmplog="${TMPDIR:-/tmp}/git-scrub-${sub:-none}.log"
 
 die() { printf 'git-scrub: %s\n' "$1" >&2; printf '%s %s: could not run: %s\n' "$(date -u +%FT%TZ)" "$sub" "$1" >> "$tmplog"; exit 2; }
 
-# C8.3 steps 1 and 2: scrub.id, else the root commit hash, first in sorted order.
+# C8.3: scrub.id; else the root commit hash, first in sorted order, in a full clone; else,
+# in a shallow clone, the root read from a commits-only bare clone of each remote.
+# The steps tried go to $work/tried, since repo_id runs in a subshell.
+note() { printf '%s; ' "$1" >> "$work/tried"; }
 repo_id() {
-  local id
+  local id url t
   id=$(git config --get scrub.id 2>/dev/null) && [ -n "$id" ] && { echo "$id"; return 0; }
-  id=$(git rev-list --max-parents=0 HEAD 2>/dev/null | sort | head -1)
-  [ -n "$id" ] && { echo "$id"; return 0; }
+  : > "$work/tried"; note "step 1: scrub.id is unset"
+  if [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" != true ]; then
+    id=$(git rev-list --max-parents=0 HEAD 2>/dev/null | sort | head -1)
+    [ -n "$id" ] && { echo "$id"; return 0; }
+    note "step 2: the repo has no commits"
+    return 1
+  fi
+  note "step 2: a shallow clone holds no root commit"
+  for url in $(git remote | while read -r r; do git remote get-url "$r"; done); do
+    t=$(mktemp -d)
+    if git clone -q --bare --filter=tree:0 "$url" "$t/r" 2>/dev/null; then
+      id=$(git -C "$t/r" rev-list --max-parents=0 HEAD 2>/dev/null | sort | head -1)
+      rm -rf "$t"
+      [ -n "$id" ] && { echo "$id"; return 0; }
+      note "step 3: $url has no commits"
+    else
+      rm -rf "$t"; note "step 3: could not clone $url"
+    fi
+  done
+  [ -n "$(git remote)" ] || note "step 3: no remote to read the root from"
   return 1
 }
 
-# C8.4: no config found fails closed.
+# C8.4: no config found fails closed. The first match is written to scrub.id.
 config_dir() {
   local id
   git rev-parse --git-dir >/dev/null 2>&1 || die "not in a git repository"
-  id=$(repo_id) || die "no config found: scrub.id is not set and the repo has no root commit"
-  [ -d "$STATE/$id" ] || die "no config found: no folder at $STATE/$id (step 1: scrub.id $(git config --get scrub.id || echo unset); step 2: root commit $id)"
+  id=$(repo_id) || die "no config found ($(sed "s/; $//" "$work/tried"))"
+  [ -d "$STATE/$id" ] || die "no config found: no folder at $STATE/$id"
+  [ "$(git config --get scrub.id)" = "$id" ] || git config scrub.id "$id"
   echo "$STATE/$id"
+}
+
+# C8.6: the config's hash, which a passed commit is recorded under.
+config_hash() {
+  find "$cfg" -maxdepth 2 -type f ! -name log ! -name passed -print0 | sort -z | xargs -0 cat 2>/dev/null \
+    | cat - "$LIB"/*.awk "$LIB"/*.tsv "$LIB"/*.txt | sha1sum | cut -c1-40
 }
 
 setting() { # key default
@@ -80,15 +113,28 @@ labels() { # built-in labels, less those turned off, plus the public ones and th
   return 0
 }
 
-staged_lines() { # where<TAB>text for each added line, with its new line number (C1.1)
-  git -c core.quotePath=false diff --cached -U0 --no-color --text --no-ext-diff | gawk '
+added_lines() { # PREFIX: a diff on stdin, as where<TAB>text for each added line (C1.1)
+  gawk -v pre="$1" '
     /^\+\+\+ / { f = (substr($0, 1, 6) == "+++ b/") ? substr($0, 7) : ""; next }
     /^@@/ { match($0, /\+[0-9]+/); n = substr($0, RSTART + 1, RLENGTH - 1) + 0; next }
-    /^\+/ && f != "" { print f ":" n "\t" substr($0, 2); n++ }'
+    /^\+/ && f != "" { print pre f ":" n "\t" substr($0, 2); n++ }'
 }
 
-message_lines() { # FILE
-  gawk '{ if ($0 !~ /^#/) print "commit message:" NR "\t" $0 }' "$1"
+staged_lines() { git -c core.quotePath=false diff --cached -U0 --no-color --text --no-ext-diff | added_lines ""; }
+
+commit_lines() { # COMMIT: its added lines against its first parent
+  git -c core.quotePath=false diff-tree -p -U0 --root -m --first-parent --no-commit-id --no-color --text --no-ext-diff "$1" \
+    | added_lines "${1:0:12} "
+}
+
+tree_lines() { # COMMIT: every line of every tracked text file, read from the commit (C6.2,
+  # C6.3: paths whole, from NUL-separated output)
+  git -c core.quotePath=false grep -I -n --null --full-name -e '' "$1" -- 2>/dev/null \
+    | gawk -v c="${1:0:12}" 'BEGIN { FS = "\0" } { p = $1; sub(/^[^:]*:/, "", p); t = $3; for (i = 4; i <= NF; i++) t = t "\0" $i; print c " " p ":" $2 "\t" t }'
+}
+
+message_lines() { # FILE [PREFIX]
+  gawk -v pre="${2:-commit }" '{ if ($0 !~ /^#/) print pre "message:" NR "\t" $0 }' "$1"
 }
 
 # E3, C3.1: every typed prompt, as ms<TAB>session<TAB>text, oldest first. Pasted text is
@@ -118,13 +164,14 @@ produced() { # ms file...
     | gsub("\n"; "\u001e")' "$@" 2>/dev/null
 }
 
-# E3: candidate hits from wording.awk, less those C3.2 rules out, appended to found.
-wording() {
+# E3: candidate hits from wording.awk over LINES, less those C3.2 rules out, appended to
+# found.
+wording() { # LINES
   [ -d "$PROJ" ] && [ -r "$PROJ" ] || die "wording is on but the transcript folder $PROJ is missing or unreadable"
-  prompts > "$work/prompts" || exit 2
+  [ -s "$work/prompts" ] || prompts > "$work/prompts" || exit 2
   [ -s "$work/prompts" ] || die "wording is on but no prompt could be read from $CDIR/history.jsonl"
   gawk -v runlen="$(setting run_length 6)" -v floor="$(setting clause_floor 5)" -f "$LIB/wording.awk" \
-    "$LIB/stop.txt" "$work/prompts" "$work/head" "$work/lines" > "$work/cands" || die "the wording check failed"
+    "$LIB/stop.txt" "$work/prompts" "$work/head" "$1" > "$work/cands" || die "the wording check failed"
   [ -s "$work/cands" ] || return 0
   : > "$work/ruled"
   local pid ms session files key pat k
@@ -156,10 +203,9 @@ wording() {
     "$work/ruled" "$work/cands" >> "$work/found"
 }
 
-# Runs stage 1 over $work/lines, prints the findings, logs counts, and exits.
-check() { # mode
-  local mode=$1 figures n counts words
-  figures=0; case $mode in staged|message|text) [ "$(setting figures 0)" = 1 ] && figures=1 ;; esac
+# Builds the inputs every scan shares, once per run.
+prepare() {
+  figures=$(setting figures 0)
   words=$(setting wording "$(setting public 0)")   # E3: opt-in, on by default in a public repo
   values > "$work/values" || exit 2
   cat "${DICTS[@]}" 2>/dev/null > "$work/dict"
@@ -167,23 +213,37 @@ check() { # mode
   cat "$cfg/allow.txt" 2>/dev/null > "$work/allow"
   labels > "$work/labels"
   cat "$cfg/message-lines.ere" 2>/dev/null > "$work/msglines"
-  : > "$work/head"
+  : > "$work/head"; : > "$work/found"; : > "$work/prompts"; nlines=0
   if { [ "$figures" = 1 ] || [ "$words" = 1 ]; } && git rev-parse -q --verify HEAD >/dev/null; then
     git grep -I -h -e . HEAD > "$work/head" 2>/dev/null   # C6.4: once per run
   fi
-  gawk -v mode="$mode" -v figures="$figures" -f "$LIB/stage1.awk" \
+}
+
+# Stage 1 and wording over LINES, findings appended to found.
+scan() { # MODE LINES
+  local mode=$1 lines=$2 fig=0
+  [ -s "$lines" ] || return 0
+  nlines=$((nlines + $(wc -l < "$lines")))
+  case $mode in staged|message|text) fig=$figures ;; esac
+  gawk -v mode="$mode" -v figures="$fig" -f "$LIB/stage1.awk" \
     "$work/values" "$work/dict" "$work/common" "$work/allow" "$work/labels" "$work/msglines" \
-    "$work/head" "$work/lines" > "$work/found" || die "stage 1 failed"
+    "$work/head" "$lines" >> "$work/found" || die "stage 1 failed"
   if [ -s "$cfg/patterns.ere" ]; then   # ERE sources, matched case-insensitively (C1.2)
-    cut -f2- "$work/lines" | "$GREP" -n -o -i -E -f <(gawk '!/^#/ && NF' "$cfg/patterns.ere") \
+    cut -f2- "$lines" | "$GREP" -n -o -i -E -f <(gawk '!/^#/ && NF' "$cfg/patterns.ere") \
       | gawk -F: 'ARGIND == 1 { v = $0; gsub(/^[[:space:]]+|[[:space:]]+$/, "", v); if (v != "" && v !~ /^#/) allow[tolower(v)] = 1; next }
         ARGIND == 2 { t = index($0, "\t"); w[FNR] = substr($0, 1, t - 1); next }
         { n = $1; m = substr($0, length(n) + 2); if (!(tolower(m) in allow)) print w[n] "\tpattern\t" m }' \
-        "$work/allow" "$work/lines" - >> "$work/found"
+        "$work/allow" "$lines" - >> "$work/found"
   fi
-  [ "$words" = 1 ] && wording
+  [ "$words" = 1 ] && wording "$lines"
+  return 0
+}
+
+# Prints the findings, logs counts and categories only, and exits (E9, P4).
+report() { # MODE
+  local mode=$1 n counts
   n=$(wc -l < "$work/found"); counts=$(cut -f2 "$work/found" | sort | uniq -c | gawk '{ c = $1; $1 = ""; printf "%s%s x%d", (NR > 1 ? "," : ""), substr($0, 2), c }')
-  printf '%s %s: %d line(s), %d finding(s)%s\n' "$(date -u +%FT%TZ)" "$mode" "$(wc -l < "$work/lines")" "$n" "${counts:+: $counts}" \
+  printf '%s %s: %d line(s), %d finding(s)%s\n' "$(date -u +%FT%TZ)" "$mode" "$nlines" "$n" "${counts:+: $counts}" \
     | tee -a "$cfg/log" >> "$tmplog"
   [ "$n" = 0 ] && exit 0
   printf '\ngit-scrub: %d finding(s) in %s\n' "$n" "$mode" >&2
@@ -192,51 +252,150 @@ check() { # mode
   exit 1
 }
 
-hook_body() { # name
-  case $1 in
-    pre-commit) printf '"%s" staged || exit $?\n' "$self" ;;
-    commit-msg) printf '"%s" message "$1" || exit $?\n' "$self" ;;
-  esac
+# C2.2: each new commit's author and committer is one of the repo's identities, if it
+# names any (identity=Name <email> lines in settings).
+identity() { # COMMIT
+  local c=$1 who
+  [ -n "$(gawk -F= '$1 == "identity"' "$cfg/settings" 2>/dev/null)" ] || return 0
+  for who in author committer; do
+    local fmt=%an; [ $who = committer ] && fmt=%cn
+    local id; id=$(git log -1 --format="${fmt} <${fmt/n/e}>" "$c")
+    gawk -F= -v id="$id" '$1 == "identity" && substr($0, 10) == id { f = 1 } END { exit !f }' "$cfg/settings" \
+      || printf '%s %s\tidentity\t%s\n' "${c:0:12}" "$who" "$id" >> "$work/found"
+  done
 }
 
+# C2.1, C8.6: the tip's tree always; each new commit's lines, message and identity, unless
+# it passed at commit time under the config's current hash.
+push_check() { # reads TIP<TAB>RANGE-ARGS lines from $work/refs
+  local tip args c h
+  h=$(config_hash)
+  : > "$work/tree"; : > "$work/added"; : > "$work/msgs"
+  while IFS=$'\t' read -r tip args; do
+    tree_lines "$tip" >> "$work/tree"
+    # shellcheck disable=SC2086
+    for c in $(git rev-list --reverse "$tip" $args); do
+      identity "$c"
+      gawk -F'\t' -v c="$c" -v h="$h" '$1 == c && $2 == h { f = 1 } END { exit !f }' "$cfg/passed" 2>/dev/null && continue
+      commit_lines "$c" >> "$work/added"
+      git log -1 --format=%B "$c" > "$work/m"; message_lines "$work/m" "${c:0:12} " >> "$work/msgs"
+    done
+  done < "$work/refs"
+  scan tree "$work/tree"; scan staged "$work/added"; scan message "$work/msgs"
+  report push
+}
+
+# The hooks. A hook git-scrub replaced runs after it, with the same arguments and stdin.
+hook_file() { # NAME NEXT: the hook script, chaining to NEXT
+  printf '#!/bin/sh\n# git-scrub hook\nnext="%s"\n' "$2"
+  case $1 in
+    pre-commit) printf '"%s" hook-pre-commit || exit $?\n[ -x "$next" ] && exec "$next" "$@"\n' "$self" ;;
+    commit-msg) printf '"%s" hook-commit-msg "$1" || exit $?\n[ -x "$next" ] && exec "$next" "$@"\n' "$self" ;;
+    post-commit) printf '"%s" hook-post-commit\n[ -x "$next" ] && exec "$next" "$@"\n' "$self" ;;
+    pre-push) printf 'in=$(mktemp) || exit 2\ncat > "$in"\n"%s" push < "$in" || { rc=$?; rm -f "$in"; exit $rc; }\nif [ -x "$next" ]; then "$next" "$@" < "$in"; rc=$?; else rc=0; fi\nrm -f "$in"; exit $rc\n' "$self" ;;
+    *) printf '[ -x "$next" ] && exec "$next" "$@"\n' ;;
+  esac
+  printf 'exit 0\n'
+}
+
+ours() { "$GREP" -q '^# git-scrub hook' "$1" 2>/dev/null; }
+
 enable() {
-  local gd name f id
+  local gd top name f id hp prev dir
   gd=$(git rev-parse --absolute-git-dir) || die "not in a git repository"
-  [ -n "$(git config --get core.hooksPath)" ] && die "core.hooksPath is set; enabling over it is not built yet (C8.7)"
-  id=$(repo_id) || die "the repo has no commits; a generated id is not built yet (C8.3)"
+  top=$(git rev-parse --show-toplevel)
+  if ! id=$(repo_id); then
+    git rev-parse -q --verify HEAD >/dev/null && die "no id found ($(sed "s/; $//" "$work/tried"))"
+    id="new-$(cat /proc/sys/kernel/random/uuid)"   # C8.3: moved to the root hash at the first commit
+  fi
   git config scrub.id "$id"
-  mkdir -p "$gd/hooks"
-  for name in "${HOOKS[@]}"; do
-    f=$gd/hooks/$name
-    if [ -e "$f" ] && ! "$GREP" -q '^# git-scrub hook' "$f"; then mv "$f" "$f.scrub-chained"; fi
-    { printf '#!/bin/sh\n# git-scrub hook\n'; hook_body "$name"
-      printf '[ -x "$0.scrub-chained" ] && exec "$0.scrub-chained" "$@"\nexit 0\n'; } > "$f"
-    chmod 755 "$f"
-  done
-  echo "git-scrub: enabled in $(git rev-parse --show-toplevel), id $id"
+  hp=$(git config --get core.hooksPath)
+  if [ -n "$hp" ] && [ "$hp" != "$gd/scrub-hooks" ]; then
+    # C8.7: the repo's own hooks directory stays as it is; git-scrub's directory calls it.
+    case $hp in /*) prev=$hp ;; *) prev=$top/$hp ;; esac
+    dir=$gd/scrub-hooks; mkdir -p "$dir"
+    git config scrub.prevHooksPath "$hp"
+    for f in "$prev"/*; do
+      [ -f "$f" ] && [ -x "$f" ] || continue
+      name=${f##*/}; case " ${HOOKS[*]} " in *" $name "*) continue ;; esac
+      hook_file "$name" "$f" > "$dir/$name"; chmod 755 "$dir/$name"
+    done
+    for name in "${HOOKS[@]}"; do hook_file "$name" "$prev/$name" > "$dir/$name"; chmod 755 "$dir/$name"; done
+    git config core.hooksPath "$dir"
+  elif [ -z "$hp" ]; then
+    mkdir -p "$gd/hooks"
+    for name in "${HOOKS[@]}"; do
+      f=$gd/hooks/$name
+      if [ -e "$f" ] && ! ours "$f"; then mv "$f" "$f.scrub-chained"; fi
+      hook_file "$name" "$f.scrub-chained" > "$f"; chmod 755 "$f"
+    done
+  fi
+  echo "git-scrub: enabled in $top, id $id"
   [ -d "$STATE/$id" ] || echo "git-scrub: no config at $STATE/$id yet; every check refuses until there is one"
 }
 
 disable() {
-  local gd name f
+  local gd name f prev
   gd=$(git rev-parse --absolute-git-dir) || die "not in a git repository"
-  for name in "${HOOKS[@]}"; do
-    f=$gd/hooks/$name
-    "$GREP" -q '^# git-scrub hook' "$f" 2>/dev/null && rm -f "$f"
-    [ -e "$f.scrub-chained" ] && mv "$f.scrub-chained" "$f"
-  done
+  if prev=$(git config --get scrub.prevHooksPath); then
+    git config core.hooksPath "$prev"; git config --unset scrub.prevHooksPath; rm -rf "$gd/scrub-hooks"
+  else
+    for name in "${HOOKS[@]}"; do
+      f=$gd/hooks/$name
+      ours "$f" && rm -f "$f"
+      [ -e "$f.scrub-chained" ] && mv "$f.scrub-chained" "$f"
+    done
+  fi
+  rm -rf "$gd/scrub"
   echo "git-scrub: disabled; the config is kept"
+}
+
+# C8.6: pre-commit and commit-msg leave a mark when they pass; post-commit records the new
+# commit as passed only if both marks are for it, so --no-verify leaves it off the list.
+mark() { local gd; gd=$(git rev-parse --absolute-git-dir); mkdir -p "$gd/scrub"; echo "$gd/scrub/pending"; }
+
+post_commit() {
+  local gd id root p tree msg h
+  gd=$(git rev-parse --absolute-git-dir); p=$gd/scrub/pending
+  id=$(git config --get scrub.id)
+  case $id in new-*)   # the first commit: the config moves to the root hash (C8.3)
+    root=$(git rev-list --max-parents=0 HEAD | sort | head -1)
+    if [ -d "$STATE/$id" ] && [ ! -e "$STATE/$root" ]; then mv "$STATE/$id" "$STATE/$root"; fi
+    git config scrub.id "$root" ;;
+  esac
+  [ -f "$p" ] || return 0
+  IFS=$'\t' read -r tree msg h < "$p"; rm -f "$p"
+  cfg=$(config_dir) || return 0
+  [ "$tree" = "$(git rev-parse 'HEAD^{tree}')" ] && [ "$msg" = ok ] && [ "$h" = "$(config_hash)" ] \
+    && printf '%s\t%s\n' "$(git rev-parse HEAD)" "$h" >> "$cfg/passed"
+  return 0
 }
 
 work=$(mktemp -d) || die "no temp directory"
 trap 'rm -rf "$work"' EXIT
 case $sub in
-  staged)  cfg=$(config_dir) || exit 2; staged_lines > "$work/lines"; check staged ;;
+  staged)  cfg=$(config_dir) || exit 2; prepare; staged_lines > "$work/lines"; scan staged "$work/lines"; report staged ;;
   message) [ -f "${1:-}" ] || die "usage: git scrub message FILE"
-           cfg=$(config_dir) || exit 2; message_lines "$1" > "$work/lines"; check message ;;
-  text)    cfg=$(config_dir) || exit 2; cat > "$work/lines"; check text ;;
+           cfg=$(config_dir) || exit 2; prepare; message_lines "$1" > "$work/lines"; scan message "$work/lines"; report message ;;
+  text)    cfg=$(config_dir) || exit 2; prepare; cat > "$work/lines"; scan text "$work/lines"; report text ;;
+  tree)    cfg=$(config_dir) || exit 2; prepare; c=$(git rev-parse --verify "${1:-HEAD}^{commit}") || die "no commit ${1:-HEAD}"
+           tree_lines "$c" > "$work/lines"; scan tree "$work/lines"; report tree ;;
+  push)    cfg=$(config_dir) || exit 2; prepare
+           if [ $# -gt 0 ]; then printf '%s\t%s\n' "$1" "${*:2}" > "$work/refs"
+           else
+             z=0000000000000000000000000000000000000000
+             gawk -v z="$z" '$2 != z { print $2 "\t" ($4 == z ? "--not --remotes" : "--not " $4) }' > "$work/refs"
+           fi
+           push_check ;;
+  hook-pre-commit)
+           p=$(mark); rm -f "$p"; ( "$self" staged ) || exit $?
+           cfg=$(config_dir) || exit 2; printf '%s\t-\t%s\n' "$(git write-tree)" "$(config_hash)" > "$p" ;;
+  hook-commit-msg)
+           ( "$self" message "${1:-}" ) || exit $?
+           p=$(mark); [ -f "$p" ] && gawk -F'\t' -v OFS='\t' '{ $2 = "ok"; print }' "$p" > "$p.new" && mv "$p.new" "$p" ;;
+  hook-post-commit) post_commit ;;
   enable)  enable ;;
   disable) disable ;;
   id)      cfg=$(config_dir) || exit 2; printf '%s\t%s\n' "$(repo_id)" "$cfg" ;;
-  *)       sed -n '2,13s/^# \{0,1\}//p' "$self"; [ -z "$sub" ] || [ "$sub" = help ] || exit 2 ;;
+  *)       sed -n '2,16s/^# \{0,1\}//p' "$self"; [ -z "$sub" ] || [ "$sub" = help ] || exit 2 ;;
 esac

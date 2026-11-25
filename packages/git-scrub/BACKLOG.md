@@ -248,3 +248,32 @@ length stays 6 and the clause floor stays 5: shorter runs and a floor of 4 add f
 hits, longer runs miss quotes, and a floor of 6 catches nothing runs of 6 don't.
 Each of the eight runs took about 3 s over 2,000 lines; E10's lookup timing is still open.
 
+## 15. Push, tree, hooks and lookup — **DONE 25 Nov 2026** for E2, E8 (except a rewrite), C2.1, C2.2, C6.2, C6.3, C8.3, C8.4, C8.6, C8.7, P2
+
+`git scrub push` checks each pushed tip's tree, and each new commit's added lines, message
+and identity unless it is on the passed list under the config's current hash; a deleted
+ref is skipped. `git scrub tree` reads the commit through `git grep --null`. `enable`
+installs `pre-commit`, `commit-msg`, `post-commit` and `pre-push`, chained to the repo's
+own hooks in `.git/hooks` or, where `core.hooksPath` is set, from a hooks directory of its
+own that forwards every other hook there; `disable` puts either back. The id lookup
+covers a shallow clone through a commits-only bare clone, writes the match to
+`scrub.id`, and gives a repo with no commits a generated id that its first commit moves
+to the root hash. `manifest.sh` puts `git-scrub` on `PATH`; the copy finds `lib/` in the
+installed skill. `test/e8-tests.sh`: 125 passed, 0 failed with the earlier tests.
+
+Seen failing first, each fault planted in a copy of the package:
+- Every new commit treated as passed: "a config change rechecks passed commits" failed,
+  124 passed and 1 failed. (The --no-verify cases still failed the push, through the
+  tip's tree.)
+- The shallow-clone step skipped: the shallow clone, its `scrub.id`, the unreachable
+  remote and the reachable-again cases failed, 121 passed and 4 failed. With a one-commit
+  source the shallow tip was the root itself and the fault went unseen, so the source now
+  has two commits.
+- No forwarders for the other hooks in `core.hooksPath`: "other core.hooksPath hooks
+  still run" failed, 124 passed and 1 failed.
+
+Not built yet: the history rewrite (E7, and E8's after-a-rewrite case), uninstall's
+refusal to remove the config (C8.5, and E8's uninstall-and-reinstall case), `history`
+(E6), the model sweep (E4), the write hook (E12) and the private-repo visibility check
+(C2.3).
+

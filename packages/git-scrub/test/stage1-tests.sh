@@ -11,7 +11,7 @@ git config --global init.defaultBranch main
 # $1: the repo's path; $2: settings lines.
 new_repo() {
   local r=$1 id cfg
-  rm -rf "$r"; git init -q "$r"
+  rm -rf "$r"; git init -q "$r"; git -C "$r" symbolic-ref HEAD refs/heads/main
   mkdir -p "$r/base"; gawk -F'\t' '$1 == "BASE" { print $4 }' "$CASES/cases.tsv" > "$r/base/README.md"
   git -C "$r" add -A; git -C "$r" commit -qm base
   id=$(git -C "$r" rev-list --max-parents=0 HEAD); cfg=$STATE/$id

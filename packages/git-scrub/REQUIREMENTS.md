@@ -105,7 +105,8 @@ goes through. A branch deletion is not checked.*
 - **C2.1 What a push sends.** `pre-push` checks, for each ref: the tip's tree, and each new
   commit's added lines, message, author and committer. New commits are `<tip> --not
   <remote sha>`, or `<tip> --not --remotes` for a new branch. A deleted ref is skipped.
-  `git scrub push [<tip> <rev-list args>]` runs the same by hand.
+  `git scrub push [<tip> <rev-list args>]` runs the same by hand. Figures (E5) are
+  checked at commit only: at push, HEAD already holds the figures being pushed.
 - **C2.2 Identity is per-repo config.** A repo can require one author and committer
   (name and email), or a list of allowed ones, or nothing.
 - **C2.3 GitHub visibility check.** `git scrub private` asks the GitHub API anonymously for
@@ -342,8 +343,11 @@ commit the push sends is checked again.*
   unreadable or empty, as when the encrypted directory holding them is locked, every check
   refuses with exit 2 and names the path.
 - **C8.6 Checked at commit and at push.** `git scrub enable` installs `pre-commit`,
-  `commit-msg` and `pre-push`. Each config keeps a list of commits that passed
-  `pre-commit` and `commit-msg`, with the hash of the config they passed under. At push
+  `commit-msg`, `post-commit` and `pre-push`. Each config keeps a list of commits that
+  passed `pre-commit` and `commit-msg`, with the hash of the config they passed under:
+  each hook leaves a mark under the repo's git directory when it passes, and
+  `post-commit` records the new commit only when both marks are for its tree and the
+  current config. At push
   (C2.1) the tip's tree is always checked; a new commit is skipped only when it is on
   that list under the config's current hash. Commits made with `--no-verify`, by a rebase
   or a merge, or in a clone without the hooks, are not on it and are checked.

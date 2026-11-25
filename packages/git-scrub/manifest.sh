@@ -10,7 +10,10 @@ OWNS="git-scrub"
 DIRS=(
   "skill:$CLAUDE_DIR/skills/git-scrub"
 )
-FILES=()
+# git-scrub on PATH, so `git scrub` works (P2). The copy finds lib/ in the installed skill.
+FILES=(
+  "skill/bin/git-scrub:$HOME/.local/bin/git-scrub"
+)
 # Other directories uninstall.sh removes. Not for state: uninstall.sh already
 # removes the skill's state/ (unless --keep-state) and ~/.local/share/git-scrub.
 # See reference/layout.md.
