@@ -383,3 +383,34 @@ first version left `.git` on the repo name from the SSH and `ssh://` forms, and 
 cases failed; planted, a 200 passing failed "200 fails", and a token passed through
 failed "the request carries no token".
 
+## 22. Differential test (D3) — **IN PROGRESS, 26 Nov 2026**
+
+`test/d3.sh PUBLIC-REPO` runs the commit checker (by symlink, from where it is) and
+git-scrub in temp clones, compares locations and categories only, logs to
+`${TMPDIR:-/tmp}/d3.log` and lists the differing locations in `d3-detail.tsv`, mode 0600.
+`GIT_SCRUB_FINDINGS=FILE` makes git-scrub write every finding's location and category
+for it. The wording lookup now runs one `grep -o` over the transcripts for all run and
+clause keys, then reads per prompt only the files holding its keys; `run-tests.sh`
+still passes with it (188 passed, the one failure being the live sweep checks, left out).
+
+Where it stands:
+- Part 1, the planted set: passes. 45 rows give the same findings from both checkers
+  and 8 differ as the manifest says. V12's export path is now relative to the temp
+  repo, so no `/tmp/claude-<uid>` path is in it.
+- Part 2, the public repo's HEAD tree: no findings from both outside the wording rules;
+  the wording-only findings (17 `wording` and 11 `close to wording` from the commit
+  checker, 11 `wording` from git-scrub) are the new rules' intended differences.
+- Bug in `d3.sh`: the checker-side count of differences sets apart `wording` and
+  `identity` but not `close to wording`, so the tree step reported 11 differences that
+  are wording; its filter needs `(close to )?` as the git-scrub side has.
+- Part 2, the full history: did not finish in 30 minutes and was stopped. The time is
+  git-scrub's wording check over every line ever committed, not the commit checker. Next:
+  time its phases (candidates, prompts with hits, lookups) on a clone of the public repo,
+  and cut the per-prompt lookups.
+
+Also open from the same run of work: E10's timings (stage 1 over a 200-line diff, `tree`
+over 2,000 files, the write hook again), item 12, and `test/e9-tests.sh`, written and
+wired into `run-tests.sh` but not yet run. Running D3 from the Bash tool: each sandboxed
+command has its own process list, so `pgrep` there cannot see a run started by another
+command; stop a background run with its task id.
+
