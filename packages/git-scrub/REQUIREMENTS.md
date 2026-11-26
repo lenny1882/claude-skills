@@ -148,9 +148,12 @@ length and the floor kept or changed on that count.*
   only for that run or clause, in this order, stopping at the first that rules it out:
   1. the transcript of the session the prompt was typed in (its `sessionId`), with that
      session's subagent transcripts;
-  2. one fixed-string `grep -F` for the run over every other transcript under
-     `~/.claude/projects/`, for text copied in from another session, then a read of only
-     the files it names.
+  2. for what step 1 leaves, every other transcript under `~/.claude/projects/`, for
+     text copied in from another session: one search for all the runs and clauses left,
+     their words with punctuation or escaped newlines between them, and for each
+     paraphrase left the lines holding every one of its words; only the lines found are
+     read. The search runs in the C locale, as eight greps over an eighth of the files
+     each, each into a file of its own so no line is split.
 
   A run or clause is held when its words appear in a row in that text. A paraphrase is
   held when one clause there holds every content word the line shares with my sentence,
@@ -403,8 +406,26 @@ and recorded.*
 
 Measured for these figures: building 6-word runs and whole clauses from that prompt log
 and checking 200 lines against them took 0.65 s, nearly all of it reading the log, so a
-1-line change costs about the same as 200 lines. One lookup pass over the transcripts took
-0.7 to 3.0 s with punctuation allowed between words, and runs several hits in one `grep`.
+1-line change costs about the same as 200 lines.
+
+Measured since, with an 11,470-line prompt log and 997 MB of transcripts in 510 files, on
+a 200-line staged diff in a public repo whose HEAD holds about 30,000 text lines, the model
+sweep skipped:
+- no wording hit: 3.2 to 3.3 s, over the 2 s budget. `wording.awk` takes 1.9 s of it,
+  reading HEAD's text as well as the prompts, so it grows with the repo; reading the
+  prompt log 0.6 s; stage 1 0.4 s; `git grep` of HEAD's text 0.25 s;
+- one 6-word typed run quoted: 3.7 s; a 13-word typed sentence quoted: 4.2 s. A true hit
+  is never ruled out by its own session, so it always pays C3.2's step 2.
+
+C3.2's step 2 search, one case-insensitive regex per run joined into one `grep -E`: in the
+`en_GB.UTF-8` locale it took 1.7 s for 1 pattern, 30 s for 5 and 292 s for 15; in the C
+locale 0.5 s, 2.1 s and 3.3 s, and 3.6 s for 60, with the same matches. Reading only the
+matching lines, from eight greps in parallel, took 0.8 s per prompt for runs of typed
+prompts and 0.2 s per run of Claude's text, against 4.4 s and 1.3 s for reading every file
+that held a match. Searching newest file first, oldest first or in random order, stopping
+once every run is held, saved nothing over the parallel search: a true hit reads every
+file in any order. Stage 1 over every line of a repo's history ran at about 0.8 ms a line,
+so `tree` over a 2,000-file repo may miss its 30 s budget; not yet measured.
 
 ### E11. Both existing checkers are replaced with nothing lost
 

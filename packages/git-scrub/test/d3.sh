@@ -130,7 +130,7 @@ for mode in tree history; do
   sed -E 's/^[0-9a-f]{12} //' "$T/$mode-gs.raw" 2>/dev/null | sort -u > "$T/$mode-gs"
   apart='wording|identity'
   m=$(comm -12 "$T/$mode-checker" "$T/$mode-gs" | wc -l)
-  oc=$(comm -23 "$T/$mode-checker" "$T/$mode-gs" | /usr/bin/grep -v -E "	($apart)" | wc -l)
+  oc=$(comm -23 "$T/$mode-checker" "$T/$mode-gs" | /usr/bin/grep -v -E "	(close to )?($apart)" | wc -l)
   og=$(comm -13 "$T/$mode-checker" "$T/$mode-gs" | /usr/bin/grep -v -E "	(close to )?($apart)" | wc -l)
   echo "  $mode: $m findings from both; outside the new wording rules, $oc only from the commit checker and $og only from git-scrub"
   for side in checker gs; do

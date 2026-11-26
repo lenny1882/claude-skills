@@ -383,34 +383,65 @@ first version left `.git` on the repo name from the SSH and `ssh://` forms, and 
 cases failed; planted, a 200 passing failed "200 fails", and a token passed through
 failed "the request carries no token".
 
-## 22. Differential test (D3) — **IN PROGRESS, 26 Nov 2026**
+## 22. Differential test (D3) — **DONE 26 Nov 2026**
 
 `test/d3.sh PUBLIC-REPO` runs the commit checker (by symlink, from where it is) and
 git-scrub in temp clones, compares locations and categories only, logs to
 `${TMPDIR:-/tmp}/d3.log` and lists the differing locations in `d3-detail.tsv`, mode 0600.
 `GIT_SCRUB_FINDINGS=FILE` makes git-scrub write every finding's location and category
-for it. The wording lookup now runs one `grep -o` over the transcripts for all run and
-clause keys, then reads per prompt only the files holding its keys; `run-tests.sh`
-still passes with it (188 passed, the one failure being the live sweep checks, left out).
+for it. Both sides set apart `wording`, `close to wording` and `identity` findings.
 
-Where it stands:
-- Part 1, the planted set: passes. 45 rows give the same findings from both checkers
-  and 8 differ as the manifest says. V12's export path is now relative to the temp
-  repo, so no `/tmp/claude-<uid>` path is in it.
-- Part 2, the public repo's HEAD tree: no findings from both outside the wording rules;
-  the wording-only findings (17 `wording` and 11 `close to wording` from the commit
-  checker, 11 `wording` from git-scrub) are the new rules' intended differences.
-- Bug in `d3.sh`: the checker-side count of differences sets apart `wording` and
-  `identity` but not `close to wording`, so the tree step reported 11 differences that
-  are wording; its filter needs `(close to )?` as the git-scrub side has.
-- Part 2, the full history: did not finish in 30 minutes and was stopped. The time is
-  git-scrub's wording check over every line ever committed, not the commit checker. Next:
-  time its phases (candidates, prompts with hits, lookups) on a clone of the public repo,
-  and cut the per-prompt lookups.
+Run against the public repo: 3 passed, 0 failed, in about 34 minutes.
+- Part 1, the planted set: 45 rows give the same findings from both checkers and 8 differ
+  as the manifest says. V12's export path is relative to the temp repo, so no
+  `/tmp/claude-<uid>` path is in it.
+- Part 2, HEAD's tree: no difference outside the wording rules; set apart, 17 `wording`
+  and 10 `close to wording` only from the commit checker, 12 `wording` only from git-scrub.
+- Part 2, the full history: no difference outside the wording rules; set apart, 148
+  `wording` and 288 `close to wording` only from the commit checker, 464 `wording` only
+  from git-scrub.
 
-Also open from the same run of work: E10's timings (stage 1 over a 200-line diff, `tree`
-over 2,000 files, the write hook again), item 12, and `test/e9-tests.sh`, written and
-wired into `run-tests.sh` but not yet run. Running D3 from the Bash tool: each sandboxed
-command has its own process list, so `pgrep` there cannot see a run started by another
-command; stop a background run with its task id.
+Open: the set-apart `close to wording` findings are not compared, so D3 would still pass
+if git-scrub's paraphrase rule stopped finding one the commit checker finds. To keep that
+check, record the current locations as known differences and fail on any beyond them.
 
+## 23. Wording lookup speed — **DONE 26 Nov 2026** for C3.2's order; E10 still open
+
+The lookup follows C3.2's order: each prompt's own session first, then, only for the keys
+it leaves, one search of the other transcripts, in the C locale, by eight greps in
+parallel, returning only the matching lines for jq to read. A paraphrase key is searched
+for by its longest word and kept to the lines holding every other word. E10 has the
+timings. `GIT_SCRUB_GREP` names the grep the lookup runs, so the tests can see which
+searches run. `test/wording-tests.sh` adds O1 (held in its own session and another: not
+reported, no other transcript read, no search of every transcript), O2 (held only in
+another session: not reported, that transcript read) and P1 (a paraphrase: reported with
+no transcript holding it, not reported with one holding every word, which is read, and a
+transcript holding only some of the words not read). 202 passed, 1 failed, the one being
+the live sweep checks, left out of this run.
+
+Seen failing first, each fault planted in a copy of the package:
+- The pre-change order: "O1: no other session's transcript is read" failed, then, with
+  the shared search still run first, "O1: no search over every transcript".
+- Step 2 removed: O2's two checks failed.
+- Only the longest paraphrase word searched for: "a transcript holding only some words is
+  not read" failed, in both the file and the line versions.
+- Only one of the eight greps run: O2's and P1's rule-out checks failed.
+
+`git scrub history` over the public repo gives the same 447 findings, location and
+category, as the code before these changes, in 7 min 24 s against 20 min 3 s.
+
+Reading only the matching lines narrows one case: a key whose own regex misses, for its
+words being split by something like `\r` or `\u00a0` in the JSON, is found only in a
+line another key's regex matched, where the whole file was read before. It changed no
+finding in the public repo's history. Not covered by a test: a transcript line longer
+than a pipe buffer, which each grep's own output file is there for.
+
+Open for E10: the 200-line diff with no hit takes 3.2 to 3.3 s against 2 s, 1.9 s of it
+`wording.awk`, not yet split between the prompts and HEAD's text; `tree` over 2,000 files;
+the write hook again; the model sweep's time on a 200-line diff. Also open: item 12.
+`test/e9-tests.sh` runs in `run-tests.sh` and passes (5 checks).
+
+Running a long test from the Bash tool: each sandboxed command has its own process list,
+so `pgrep` there cannot see a run started by another command, and a job left running with
+`&` inside a backgrounded command is killed when that command ends; run it in the
+foreground of the backgrounded command, and stop it with its task id.
