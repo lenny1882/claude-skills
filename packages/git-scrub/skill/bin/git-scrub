@@ -281,6 +281,7 @@ prepare() {
   cat "$LIB/common.txt" "$cfg/common.txt" 2>/dev/null > "$work/common"
   cat "$cfg/allow.txt" 2>/dev/null > "$work/allow"
   labels > "$work/labels"
+  gawk -f "$LIB/labelfn.awk" "$work/labels" > "$work/labels.awk" || die "labels failed"
   cat "$cfg/message-lines.ere" 2>/dev/null > "$work/msglines"
   : > "$work/head"; : > "$work/found"; : > "$work/prompts"; nlines=0
   if { [ "$figures" = 1 ] || [ "$words" = 1 ]; } && git rev-parse -q --verify HEAD >/dev/null; then
@@ -294,7 +295,7 @@ scan() { # MODE LINES
   [ -s "$lines" ] || return 0
   nlines=$((nlines + $(wc -l < "$lines")))
   case $mode in staged|message|text) fig=$figures ;; esac
-  gawk -v mode="$mode" -v figures="$fig" -f "$LIB/stage1.awk" \
+  gawk -v mode="$mode" -v figures="$fig" -f "$LIB/stage1.awk" -f "$work/labels.awk" \
     "$work/values" "$work/dict" "$work/common" "$work/allow" "$work/labels" "$work/msglines" \
     "$work/head" "$lines" >> "$work/found" || die "stage 1 failed"
   if [ -s "$cfg/patterns.ere" ]; then   # ERE sources, matched case-insensitively (C1.2)
@@ -326,7 +327,7 @@ sweep() { # LINES
     said=""
     if [ "$words" = 1 ]; then
       said=$(gawk -f "$LIB/sweep-wording.awk" "$LIB/stop.txt" "$work/batch" "$work/prompts" \
-        | gawk '{ print "x\t" $0 }' | gawk -v mode=redact -f "$LIB/stage1.awk" "$work/values" "$work/dict" "$work/common" \
+        | gawk '{ print "x\t" $0 }' | gawk -v mode=redact -f "$LIB/stage1.awk" -f "$work/labels.awk" "$work/values" "$work/dict" "$work/common" \
             "$work/allow" "$work/labels" /dev/null /dev/null - | sed 's/^/- /')
     fi
     prompt="You check text that is about to be committed to a git repository.

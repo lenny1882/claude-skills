@@ -9,6 +9,7 @@
 #   6 msglines  message-line EREs (C7.5), used only when mode is message
 #   7 head      every tracked line at HEAD, for figures (E5)
 #   8 lines     where<TAB>text, the lines to check
+# A second -f names the lmatch() that labelfn.awk writes from the same labels file.
 # Variables: mode (staged, message, tree, history, identity, text, redact), figures (1 to check them).
 # Output: where<TAB>category<TAB>matched text, one line per finding. In redact mode, each
 # line's text instead, with every value and label match replaced by [removed] (C4.1).
@@ -24,7 +25,7 @@ ARGIND == 5 {
   split($0, f, "\t"); lname[++nl] = f[1]; lcase[nl] = (f[2] == "insensitive")
   re = f[3]; for (i = 4; i in f; i++) re = re "\t" f[i]
   gsub(/\\b/, "\\y", re)                    # \b is a backspace in gawk; read it as a boundary
-  lre[nl] = re; next
+  lre[nl] = re; lanch[nl] = (re ~ /^\^/); lbound[nl] = (re ~ /^\\y/); next
 }
 ARGIND == 6 { if ($0 != "" && $0 !~ /^#/) msgre[++nm] = $0; next }
 ARGIND == 7 { head = head "\n" $0; next }
@@ -96,8 +97,8 @@ function redact(text,   lt, i, v, L, p, k, s, e, cut, n, re, a, out, pos) {
     }
   }
   for (i = 1; i <= nl; i++) {
-    re = lre[i]; IGNORECASE = lcase[i]; pos = 1
-    while (pos <= length(text) && match(substr(text, pos), re)) {
+    IGNORECASE = lcase[i]; pos = 1
+    while (pos <= length(text) && lmatch(i, substr(text, pos))) {
       a = pos + RSTART - 1; for (e = a; e < a + RLENGTH; e++) cut[e] = 1
       pos = a + (RLENGTH > 0 ? RLENGTH : 1)
     }
@@ -134,13 +135,13 @@ function check(where, text,   lt, i, v, p, k, s, best, pos, cands, a, L, m, re, 
   # Labels (C1.4): every match, as finditer gives them. Not on an identity line, which
   # always holds an email address.
   for (i = 1; i <= nl && mode != "identity"; i++) {
-    re = lre[i]; IGNORECASE = lcase[i]; anchored = (re ~ /^\^/); pos = 1
+    IGNORECASE = lcase[i]; anchored = lanch[i]; pos = 1
     while (pos <= length(text) + 1) {
       sub_ = substr(text, pos)
-      if (!match(sub_, re)) break
+      if (!lmatch(i, sub_)) break
       a = pos + RSTART - 1; m = substr(text, a, RLENGTH)
       ok = 1
-      if (re ~ /^\\y/ && a > 1 && wordc(substr(text, a - 1, 1)) && wordc(substr(text, a, 1))) ok = 0
+      if (lbound[i] && a > 1 && wordc(substr(text, a - 1, 1)) && wordc(substr(text, a, 1))) ok = 0
       if (anchored && a > 1) ok = 0
       if (ok && lname[i] == "Slack id" && substr(m, 2) !~ /[0-9]/) ok = 0
       if (ok && !(tolower(m) in allow)) out(where, lname[i], m)

@@ -439,7 +439,8 @@ over those lines, stage 1 took 1.5 s with no labels, 3.2 s with one, 82.8 s with
 250.9 s with the 12 built-in ones, because one `match()` call takes each label's regex as
 a string in turn and gawk compiles a dynamic regex again whenever the string at a call
 site changes. With each label as a regex literal of its own, it took 15.4 s and gave the
-same 672 findings.
+same 672 findings. Built that way (`labelfn.awk`), over the same repo rebuilt at 265,067
+text lines: `tree` 15.2 s with wording off, against 168.6 s before, and 705 s with it on.
 
 ### E11. Both existing checkers are replaced with nothing lost
 

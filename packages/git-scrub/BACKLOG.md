@@ -453,14 +453,17 @@ foreground of the backgrounded command, and stop it with its task id.
 For E10. Over a 2,000-file repo of 308,892 lines, `tree` takes 185 s with wording off and
 1,022 s with it on, against 30 s; E10 has the measurements.
 
-Next, for stage 1: build the label check from a function generated at run time, one
-regex literal per label, since the labels include each repo's own `labels.tsv`; use it in
-both `check()` and `redact()`, where the same loop recompiles each label on every line. A
-trial over the 2,000-file repo took 15.4 s against 250.9 s, with the same 672 findings.
-To pass: the suite, the same findings on the planted cases and on the 2,000-file repo,
-and `tree` re-timed.
+Stage 1, **DONE 26 Nov 2026**: `skill/lib/labelfn.awk` writes `lmatch(i, s)` from the
+run's labels file, built-ins and the repo's own `labels.tsv` alike, with each label's ERE
+as a regex literal, `/` escaped; `stage1.awk` takes it as a second `-f` and calls it in
+both `check()` and `redact()`. The suite: 202 passed, 1 failed, the live sweep checks, as
+before. The same findings from the code before and after: on the planted cases, `staged`
+44, `tree` 43 and redact mode over every case line 80; on the 2,000-file repo, rebuilt
+the same way (265,067 text lines, the three repos having changed), `tree` 618. `tree`
+over it with wording off: 15.2 s, against 168.6 s before; with wording on: 705 s,
+877 findings.
 
-Then, for wording: the extra 837 s with wording on is not yet split between
+Then, for wording: the extra 690 s with wording on is not yet split between
 `wording.awk`, step 1 (each prompt with a candidate reads its own session's whole
 transcript through jq) and step 2.
 
