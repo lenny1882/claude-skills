@@ -438,7 +438,7 @@ than a pipe buffer, which each grep's own output file is there for.
 
 `wording.awk` runs in the C locale, with the same candidates on a 200-line diff, a
 27,150-line one and the planted cases: the 200-line diff with no hit takes 2.7 s, within
-E10's budget, now 3 s. Open for E10: `tree` over 2,000 files; the write hook, whose
+E10's budget, now 3 s. Open for E10: `tree` over 2,000 files (item 24); the write hook, whose
 200-line check took 1,054 and 1,076 ms in two of three runs at a load average of 2.5 to
 3; the model sweep's time on a 200-line diff. Also open: item 12.
 `test/e9-tests.sh` runs in `run-tests.sh` and passes (5 checks).
@@ -447,3 +447,23 @@ Running a long test from the Bash tool: each sandboxed command has its own proce
 so `pgrep` there cannot see a run started by another command, and a job left running with
 `&` inside a backgrounded command is killed when that command ends; run it in the
 foreground of the backgrounded command, and stop it with its task id.
+
+## 24. `tree` over 2,000 files — **OPEN, raised 26 Nov 2026**
+
+For E10. Over a 2,000-file repo of 308,892 lines, `tree` takes 185 s with wording off and
+1,022 s with it on, against 30 s; E10 has the measurements.
+
+Next, for stage 1: build the label check from a function generated at run time, one
+regex literal per label, since the labels include each repo's own `labels.tsv`; use it in
+both `check()` and `redact()`, where the same loop recompiles each label on every line. A
+trial over the 2,000-file repo took 15.4 s against 250.9 s, with the same 672 findings.
+To pass: the suite, the same findings on the planted cases and on the 2,000-file repo,
+and `tree` re-timed.
+
+Then, for wording: the extra 837 s with wording on is not yet split between
+`wording.awk`, step 1 (each prompt with a candidate reads its own session's whole
+transcript through jq) and step 2.
+
+The 2,000-file repo is built by copying the tracked files of claude-skills, maestro-drive
+and claude-impersonator (`git archive HEAD`, files under 200 KB, no images or archives)
+into `copy0/`, `copy1/` and onwards until there are 2,000.

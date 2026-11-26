@@ -430,8 +430,16 @@ matching lines, from eight greps in parallel, took 0.8 s per prompt for runs of 
 prompts and 0.2 s per run of Claude's text, against 4.4 s and 1.3 s for reading every file
 that held a match. Searching newest file first, oldest first or in random order, stopping
 once every run is held, saved nothing over the parallel search: a true hit reads every
-file in any order. Stage 1 over every line of a repo's history ran at about 0.8 ms a line,
-so `tree` over a 2,000-file repo may miss its 30 s budget; not yet measured.
+file in any order.
+
+`tree` over a 2,000-file repo of 308,892 text lines (the tracked files of three public
+repos, copied until there were 2,000), the model sweep skipped: 185 s with wording off
+and 1,022 s with it on, against 30 s. Of stage 1's time, nearly all is the label check:
+over those lines, stage 1 took 1.5 s with no labels, 3.2 s with one, 82.8 s with two and
+250.9 s with the 12 built-in ones, because one `match()` call takes each label's regex as
+a string in turn and gawk compiles a dynamic regex again whenever the string at a call
+site changes. With each label as a regex literal of its own, it took 15.4 s and gave the
+same 672 findings.
 
 ### E11. Both existing checkers are replaced with nothing lost
 
