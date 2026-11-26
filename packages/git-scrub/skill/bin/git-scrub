@@ -200,6 +200,19 @@ produced() { # ms [file...]
     | gsub("\n"; "\u001e")' "$@" 2>/dev/null
 }
 
+# produced() over file<TAB>transcript-line on stdin, with no time limit, as
+# file<TAB>ms<TAB>string, so step 2 parses its matched lines once and each prompt keeps
+# its own share of them.
+produced_tagged() {
+  jq -R -r '(split("\t")) as $p | $p[0] as $f | ($p[1:] | join("\t") | fromjson? // empty) | select(type == "object")
+    | ((.timestamp // "") | if . == "" then null else (sub("\\.[0-9]+Z$"; "Z") | try fromdateiso8601 catch null) end) as $t
+    | select($t != null)
+    | if (.isSidechain // false) or .type == "assistant" then (.message.content? // empty | .. | strings)
+      elif .type == "user" then (.message.content? | arrays | .[] | select(type == "object" and .type == "tool_result") | .. | strings)
+      else empty end
+    | "\($f)\t\($t * 1000)\t" + gsub("\n"; "\u001e")' 2>/dev/null
+}
+
 # Every transcript line matching the grep arguments, as file<TAB>line, from 8 greps in
 # parallel, each over every 8th file and into a file of its own, so no line is split.
 transcript_lines() { # OUT grep-args...
@@ -245,10 +258,12 @@ wording() { # LINES
     | while IFS= read -r key; do printf '%s\n' "${key// /$sep}"; done > "$work/pats"
   : > "$work/runlines"
   [ -s "$work/pats" ] && transcript_lines "$work/runlines" -E -f "$work/pats"
+  produced_tagged < "$work/runlines" > "$work/runstrings"
   for pid in $(cut -f1 "$work/left.all" | sort -un); do
     IFS=$'\t' read -r ms session _ < <(sed -n "${pid}p" "$work/prompts")
     gawk -F'\t' -v p="$pid" '$1 == p { print $2 "\t" $3 }' "$work/left.all" > "$work/left"
-    { gawk -F'\t' '$1 != "para"' "$work/left" | /usr/bin/grep -q . && cat "$work/runlines"
+    { gawk -F'\t' '$1 != "para"' "$work/left" | /usr/bin/grep -q . \
+        && gawk -F'\t' -v ms="$ms" 'ARGIND == 1 { own[$0] = 1; next } !($1 in own) && $2 + 0 < ms + 0 { print substr($0, length($1) + length($2) + 3) }' "$work/own.$pid" "$work/runstrings"
       # A paraphrase is held only by one clause holding every one of its words, so a
       # line must hold them all: the longest word searched for, then the rest kept to.
       while IFS=$'\t' read -r k key; do
@@ -256,10 +271,11 @@ wording() { # LINES
         mapfile -t kw < <(tr ' ' '\n' <<< "$key" | gawk 'NF { print length, $0 }' | sort -rn | cut -d' ' -f2)
         [ ${#kw[@]} -gt 0 ] || continue
         transcript_lines "$work/paralines" -F -e "${kw[0]}"
-        LC_ALL=C gawk -v w="${kw[*]:1}" 'BEGIN { n = split(w, x, " ") } { t = tolower(substr($0, index($0, "\t") + 1)); for (i = 1; i <= n; i++) if (!index(t, x[i])) next; print }' "$work/paralines"
+        LC_ALL=C gawk -v w="${kw[*]:1}" 'BEGIN { n = split(w, x, " ") } { t = tolower(substr($0, index($0, "\t") + 1)); for (i = 1; i <= n; i++) if (!index(t, x[i])) next; print }' "$work/paralines" \
+          | gawk -F'\t' 'ARGIND == 1 { own[$0] = 1; next } !($1 in own) { print substr($0, length($1) + 2) }' "$work/own.$pid" - \
+          | produced "$ms"
       done < "$work/left"; } \
-      | gawk -F'\t' 'ARGIND == 1 { own[$0] = 1; next } !($1 in own) { print substr($0, length($1) + 2) }' "$work/own.$pid" - \
-      | produced "$ms" | gawk -f "$LIB/lookup.awk" "$work/left" "$LIB/stop.txt" - \
+      | gawk -f "$LIB/lookup.awk" "$work/left" "$LIB/stop.txt" - \
       | gawk -F'\t' -v p="$pid" '{ print p "\t" $0 }' >> "$work/ruled"
   done
   wording_found

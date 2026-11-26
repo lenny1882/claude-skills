@@ -470,11 +470,18 @@ transcripts 3.3 s, matching 25,401 lines (173 MB); step 2's loop per prompt 551 
 loop sends every matched line through `produced`'s jq once for each prompt with a run key
 left, so the same 173 MB of JSON is parsed up to 49 times.
 
-Next, for step 2: parse the matched lines once, with each string's file and time, and
-have each prompt keep those from other files and before its own time, then run
-`lookup.awk` over them. To pass: the suite, the same findings on the planted cases and
-on the 2,000-file repo, and `tree` re-timed. `wording.awk`'s 80.5 s and step 1's 54 s
-come after that.
+Step 2's single parse, **DONE 26 Nov 2026**: `produced_tagged()` parses the matched
+lines once, as file<TAB>ms<TAB>string, and each prompt keeps those from other files and
+before its own time, in the same order as before, then runs `lookup.awk` over them;
+paraphrase lines still go through `produced()` per key. The suite: 202 passed, 1 failed,
+the live sweep checks. The same findings as before: planted cases `staged` 44 and
+`tree` 43; the 2,000-file repo's `tree` with wording on 877. That `tree` takes 481 s,
+against 710 s.
+
+Next: the loop's remaining time, about 320 s, is not yet split between the per-prompt
+filter and `lookup.awk`, which rebuilds one word stream and every clause's content words
+from the same strings for each of the 49 prompts. Then `wording.awk`'s 80.5 s and step 1's
+54 s.
 
 The 2,000-file repo is built by copying the tracked files of claude-skills, maestro-drive
 and claude-impersonator (`git archive HEAD`, files under 200 KB, no images or archives)
