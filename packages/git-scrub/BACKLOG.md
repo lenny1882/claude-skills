@@ -478,10 +478,21 @@ the live sweep checks. The same findings as before: planted cases `staged` 44 an
 `tree` 43; the 2,000-file repo's `tree` with wording on 877. That `tree` takes 481 s,
 against 710 s.
 
-Next: the loop's remaining time, about 320 s, is not yet split between the per-prompt
-filter and `lookup.awk`, which rebuilds one word stream and every clause's content words
-from the same strings for each of the 49 prompts. Then `wording.awk`'s 80.5 s and step 1's
-54 s.
+jq's escaping, **DONE 26 Nov 2026**. The loop's time per prompt was split: 247 s went to
+the paraphrase keys' search, nearly all of it in `produced()`'s jq, and 147 s to
+`lookup.awk`. jq 1.6's `gsub("\n"; "\u001e")` takes time that grows much faster than the
+string: 383 transcript lines of 17.7 MB took 12.9 s, where 1,100 lines of 66 MB with
+shorter strings took 2.2 s. `produced()` and `produced_tagged()` now escape with `@tsv`,
+which jq runs in C, and `lib/untsv.awk` decodes it, newlines to \036 as before: 0.33 s on
+those 383 lines. The strings are byte for byte the same on those lines, on the five
+largest transcripts (92 MB, 9.7 s before and 4.1 s after) and in the tagged form.
+`lookup.awk` builds clauses only when a paraphrase key is among its keys, since only
+paraphrase keys read them. The suite: 202 passed, 1 failed, the live sweep checks. The
+same findings: planted cases `staged` 44 and `tree` 43; the 2,000-file repo's `tree` with
+wording on 877. That `tree` takes 287 s, against 481 s.
+
+Next: split the 287 s again; `wording.awk` took 80.5 s and step 1 54 s before these
+changes.
 
 The 2,000-file repo is built by copying the tracked files of claude-skills, maestro-drive
 and claude-impersonator (`git archive HEAD`, files under 200 KB, no images or archives)

@@ -197,7 +197,7 @@ produced() { # ms [file...]
     | if (.isSidechain // false) or .type == "assistant" then (.message.content? // empty | .. | strings)
       elif .type == "user" then (.message.content? | arrays | .[] | select(type == "object" and .type == "tool_result") | .. | strings)
       else empty end
-    | gsub("\n"; "\u001e")' "$@" 2>/dev/null
+    | [.] | @tsv' "$@" 2>/dev/null | LC_ALL=C gawk -f "$LIB/untsv.awk"
 }
 
 # produced() over file<TAB>transcript-line on stdin, with no time limit, as
@@ -210,7 +210,7 @@ produced_tagged() {
     | if (.isSidechain // false) or .type == "assistant" then (.message.content? // empty | .. | strings)
       elif .type == "user" then (.message.content? | arrays | .[] | select(type == "object" and .type == "tool_result") | .. | strings)
       else empty end
-    | "\($f)\t\($t * 1000)\t" + gsub("\n"; "\u001e")' 2>/dev/null
+    | "\($f)\t\($t * 1000)\t" + ([.] | @tsv)' 2>/dev/null | LC_ALL=C gawk -v skip=2 -f "$LIB/untsv.awk"
 }
 
 # Every transcript line matching the grep arguments, as file<TAB>line, from 8 greps in

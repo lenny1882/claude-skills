@@ -440,7 +440,10 @@ over those lines, stage 1 took 1.5 s with no labels, 3.2 s with one, 82.8 s with
 a string in turn and gawk compiles a dynamic regex again whenever the string at a call
 site changes. With each label as a regex literal of its own, it took 15.4 s and gave the
 same 672 findings. Built that way (`labelfn.awk`), over the same repo rebuilt at 265,067
-text lines: `tree` 15.2 s with wording off, against 168.6 s before, and 705 s with it on.
+text lines: `tree` 15.2 s with wording off, against 168.6 s before, and 705 s with it on. With wording on, step 2 parsing its matched transcript lines once
+took that to 481 s; escaping transcript strings with jq's `@tsv` rather than `gsub`, whose
+time grows much faster than the string in jq 1.6, and `lookup.awk` building clauses only
+for a paraphrase key, to 287 s, all with the same 877 findings.
 
 ### E11. Both existing checkers are replaced with nothing lost
 

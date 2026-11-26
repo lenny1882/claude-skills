@@ -10,10 +10,11 @@
 # every content word the line shares with the typed sentence.
 
 BEGIN { FS = "\n" }
-ARGIND == 1 { t = index($0, "\t"); kind[++nk] = substr($0, 1, t - 1); key[nk] = substr($0, t + 1); next }
+ARGIND == 1 { t = index($0, "\t"); kind[++nk] = substr($0, 1, t - 1); key[nk] = substr($0, t + 1); if (kind[nk] == "para") para = 1; next }
 ARGIND == 2 { if ($0 !~ /^#/) { n = split($0, x, /[[:space:]]+/); for (i = 1; i <= n; i++) if (x[i] != "") stop[x[i]] = 1 } next }
 ARGIND == 3 {
   t = tolower($0); gsub(/[^a-z0-9']+/, " ", t); stream = stream " " t
+  if (!para) next   # clauses are read only for a paraphrase key
   m = clauses($0, cl)
   for (k = 1; k <= m; k++) { s = content(cl[k]); if (s != "" && !(s in seen)) { seen[s] = 1; sent[++nsent] = " " s " " } }
   next
