@@ -436,9 +436,11 @@ line another key's regex matched, where the whole file was read before. It chang
 finding in the public repo's history. Not covered by a test: a transcript line longer
 than a pipe buffer, which each grep's own output file is there for.
 
-Open for E10: the 200-line diff with no hit takes 3.2 to 3.3 s against 2 s, 1.9 s of it
-`wording.awk`, not yet split between the prompts and HEAD's text; `tree` over 2,000 files;
-the write hook again; the model sweep's time on a 200-line diff. Also open: item 12.
+`wording.awk` runs in the C locale, with the same candidates on a 200-line diff, a
+27,150-line one and the planted cases: the 200-line diff with no hit takes 2.7 s, within
+E10's budget, now 3 s. Open for E10: `tree` over 2,000 files; the write hook, whose
+200-line check took 1,054 and 1,076 ms in two of three runs at a load average of 2.5 to
+3; the model sweep's time on a 200-line diff. Also open: item 12.
 `test/e9-tests.sh` runs in `run-tests.sh` and passes (5 checks).
 
 Running a long test from the Bash tool: each sandboxed command has its own process list,

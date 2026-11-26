@@ -399,10 +399,13 @@ text. The value and description go to the terminal only.*
 
 *Acceptance, with a 3 MB prompt log (about 11,000 prompts) and a 1 GB transcript
 directory: stage 1 on a 200-line staged diff with no wording hit, reading every input
-afresh, finishes in under 2 seconds; the same diff with hits, including C3.2's one lookup
+afresh, finishes in under 3 seconds; the same diff with hits, including C3.2's one lookup
 pass for all of them, in under 5; the write hook (E12) in under 1 second per tool call;
 `tree` over a 2,000-file repo in under 30. The paraphrase rule (C3.3) is timed on its own
 and recorded.*
+
+The 3-second budget for a diff with no hit is set by what every run reads afresh (C3.4,
+C6.4): the prompt log and HEAD's text alone take about 1.3 s in a repo of 30,000 lines.
 
 Measured for these figures: building 6-word runs and whole clauses from that prompt log
 and checking 200 lines against them took 0.65 s, nearly all of it reading the log, so a
@@ -411,14 +414,17 @@ and checking 200 lines against them took 0.65 s, nearly all of it reading the lo
 Measured since, with an 11,470-line prompt log and 997 MB of transcripts in 510 files, on
 a 200-line staged diff in a public repo whose HEAD holds about 30,000 text lines, the model
 sweep skipped:
-- no wording hit: 3.2 to 3.3 s, over the 2 s budget. `wording.awk` takes 1.9 s of it,
-  reading HEAD's text as well as the prompts, so it grows with the repo; reading the
-  prompt log 0.6 s; stage 1 0.4 s; `git grep` of HEAD's text 0.25 s;
-- one 6-word typed run quoted: 3.7 s; a 13-word typed sentence quoted: 4.2 s. A true hit
+- no wording hit: 2.7 s. `wording.awk` takes 1.4 s of it in the C locale (1.9 s in
+  `C.UTF-8`, with the same output; in a UTF-8 locale, 1.2 to 1.4 s indexing the prompts and 0.5 to
+  0.6 s counting HEAD's words), so it grows with the repo; reading the prompt log 0.6 s; stage 1 0.4 s;
+  `git grep` of HEAD's text 0.25 s. Stage 1 stays in `C.UTF-8`: in the C locale it no
+  longer matches an accented value in another case (C1.6);
+- one 6-word typed run quoted: 3.7 s; a 13-word typed sentence quoted: 4.2 s, both
+  before `wording.awk` moved to the C locale. A true hit
   is never ruled out by its own session, so it always pays C3.2's step 2.
 
-C3.2's step 2 search, one case-insensitive regex per run joined into one `grep -E`: in the
-`en_GB.UTF-8` locale it took 1.7 s for 1 pattern, 30 s for 5 and 292 s for 15; in the C
+C3.2's step 2 search, one case-insensitive regex per run joined into one `grep -E`: in a UTF-8
+locale (`en_GB.UTF-8`, and git-scrub's own `C.UTF-8` alike) it took 1.7 s for 1 pattern, 30 s for 5 and 292 s for 15; in the C
 locale 0.5 s, 2.1 s and 3.3 s, and 3.6 s for 60, with the same matches. Reading only the
 matching lines, from eight greps in parallel, took 0.8 s per prompt for runs of typed
 prompts and 0.2 s per run of Claude's text, against 4.4 s and 1.3 s for reading every file

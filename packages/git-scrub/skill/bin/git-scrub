@@ -219,7 +219,7 @@ wording() { # LINES
   [ -d "$PROJ" ] && [ -r "$PROJ" ] || die "wording is on but the transcript folder $PROJ is missing or unreadable"
   [ -s "$work/prompts" ] || prompts > "$work/prompts" || exit 2
   [ -s "$work/prompts" ] || die "wording is on but no prompt could be read from $CDIR/history.jsonl"
-  gawk -v runlen="$(setting run_length 6)" -v floor="$(setting clause_floor 5)" -f "$LIB/wording.awk" \
+  LC_ALL=C gawk -v runlen="$(setting run_length 6)" -v floor="$(setting clause_floor 5)" -f "$LIB/wording.awk" \
     "$LIB/stop.txt" "$work/prompts" "$work/head" "$1" > "$work/cands" || die "the wording check failed"
   [ -s "$work/cands" ] || return 0
   : > "$work/ruled"
