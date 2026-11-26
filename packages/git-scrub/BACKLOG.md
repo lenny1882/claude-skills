@@ -463,9 +463,18 @@ the same way (265,067 text lines, the three repos having changed), `tree` 618. `
 over it with wording off: 15.2 s, against 168.6 s before; with wording on: 705 s,
 877 findings.
 
-Then, for wording: the extra 690 s with wording on is not yet split between
-`wording.awk`, step 1 (each prompt with a candidate reads its own session's whole
-transcript through jq) and step 2.
+Then, for wording. Split over the same repo, 710 s in all: stage 1 and reading the prompt
+log 20 s; `wording.awk` 80.5 s, giving 2,217 candidates from 84 prompts; step 1 54 s,
+leaving 145 keys from 49 prompts, 14 of them paraphrases; step 2's search of the other
+transcripts 3.3 s, matching 25,401 lines (173 MB); step 2's loop per prompt 551 s. The
+loop sends every matched line through `produced`'s jq once for each prompt with a run key
+left, so the same 173 MB of JSON is parsed up to 49 times.
+
+Next, for step 2: parse the matched lines once, with each string's file and time, and
+have each prompt keep those from other files and before its own time, then run
+`lookup.awk` over them. To pass: the suite, the same findings on the planted cases and
+on the 2,000-file repo, and `tree` re-timed. `wording.awk`'s 80.5 s and step 1's 54 s
+come after that.
 
 The 2,000-file repo is built by copying the tracked files of claude-skills, maestro-drive
 and claude-impersonator (`git archive HEAD`, files under 200 KB, no images or archives)
