@@ -250,8 +250,9 @@ Each of the eight runs took about 3 s over 2,000 lines; E10's lookup timing is s
 
 ## 15. Push, tree, hooks and lookup — **DONE 25 Nov 2026** for E2, E8 (except a rewrite), C2.1, C2.2, C6.2, C6.3, C8.3, C8.4, C8.6, C8.7, P2
 
-`git scrub push` checks each pushed tip's tree, and each new commit's added lines, message
-and identity unless it is on the passed list under the config's current hash; a deleted
+`git scrub push` checks each new commit's identity, and its added lines and message unless
+it is on the passed list under the config's current hash (since 27 Nov 2026, not the
+pushed tip's tree); a deleted
 ref is skipped. `git scrub tree` reads the commit through `git grep --null`. `enable`
 installs `pre-commit`, `commit-msg`, `post-commit` and `pre-push`, chained to the repo's
 own hooks in `.git/hooks` or, where `core.hooksPath` is set, from a hooks directory of its
@@ -524,6 +525,11 @@ findings; `tree` 135 s: the paraphrase keys' filter and jq 31 s, `wording.awk` 2
 Next: the paraphrase keys' filter lowercases all 423 MB of matched lines once per key, 33
 s of the 38 s that part takes measured on its own; one filter for every key at once would
 remove most of it.
+
+Since 27 Nov 2026 a push reads only its new commits, not the tip's tree (C2.1), so this
+time is paid only by `git scrub tree` run by hand. On a copy of claude-skills (284 files,
+35,156 text lines), with wording on, `tree` takes 93 s; a push takes 1 s when every new
+commit passed its hooks, and 5.5 s for one new 20-line commit that did not.
 
 The 2,000-file repo is built by copying the tracked files of claude-skills, maestro-drive
 and claude-impersonator (`git archive HEAD`, files under 200 KB, no images or archives)

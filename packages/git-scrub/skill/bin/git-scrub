@@ -426,14 +426,13 @@ identity() { # COMMIT
   done
 }
 
-# C2.1, C8.6: the tip's tree always; each new commit's lines, message and identity, unless
-# it passed at commit time under the config's current hash.
+# C2.1, C8.6: each new commit's identity, and its added lines and message unless it passed
+# at commit time under the config's current hash. The tip's tree is not read.
 push_check() { # reads TIP<TAB>RANGE-ARGS lines from $work/refs
   local tip args c h
   h=$(config_hash)
-  : > "$work/tree"; : > "$work/added"; : > "$work/msgs"
+  : > "$work/added"; : > "$work/msgs"
   while IFS=$'\t' read -r tip args; do
-    tree_lines "$tip" >> "$work/tree"
     # shellcheck disable=SC2086
     for c in $(git rev-list --reverse "$tip" $args); do
       identity "$c"
@@ -442,7 +441,7 @@ push_check() { # reads TIP<TAB>RANGE-ARGS lines from $work/refs
       git log -1 --format=%B "$c" > "$work/m"; message_lines "$work/m" "${c:0:12} " >> "$work/msgs"
     done
   done < "$work/refs"
-  scan tree "$work/tree"; scan staged "$work/added"; scan message "$work/msgs"
+  scan staged "$work/added"; scan message "$work/msgs"
   if [ ! -s "$work/found" ]; then   # the sweep reads only the commits that skipped the hooks
     [ -s "$work/prompts" ] || [ "$words" != 1 ] || prompts > "$work/prompts"
     cat "$work/added" "$work/msgs" > "$work/new"; sweep "$work/new"

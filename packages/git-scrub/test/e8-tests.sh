@@ -15,6 +15,7 @@ printf 'The parser reads one line.\n' > "$R/ok.md"; git -C "$R" add ok.md; (cd "
 c=$(git -C "$R" rev-parse HEAD)
 /usr/bin/grep -q "^$c	" "$cfg/passed" && ok "a commit that passed its hooks is on the passed list" || no "passed list" "$(cat "$cfg/passed" 2>&1)"
 (cd "$R" && "$GS" push "$c" --not origin/main) 2>/dev/null; n1=$(tail -1 "$cfg/log" | gawk '{ print $3 }')
+[ "$n1" = 0 ] && ok "a push of a commit that passed its hooks reads no lines, not the pushed tree (C2.1)" || no "a push reads no lines for a passed commit" "$n1 lines"
 printf 'trellisfold\n' >> "$cfg/values.txt"
 (cd "$R" && "$GS" push "$c" --not origin/main) 2>/dev/null; n2=$(tail -1 "$cfg/log" | gawk '{ print $3 }')
 [ "$n2" -gt "$n1" ] && ok "after a value is added to the config, a passed commit is checked again ($n1 then $n2 lines)" \

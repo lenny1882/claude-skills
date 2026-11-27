@@ -102,8 +102,10 @@ throwaway branch adding a line matching a pattern, and a commit there made with
 `GIT_AUTHOR_EMAIL=someone@example.com`. A push of clean commits by the configured identity
 goes through. A branch deletion is not checked.*
 
-- **C2.1 What a push sends.** `pre-push` checks, for each ref: the tip's tree, and each new
-  commit's added lines, message, author and committer. New commits are `<tip> --not
+- **C2.1 What a push sends.** `pre-push` checks, for each ref, each new commit's added
+  lines, message, author and committer. The tip's tree is not read: every line in it came
+  in through some commit, which was checked at commit time, at an earlier push, or as a
+  new commit here. New commits are `<tip> --not
   <remote sha>`, or `<tip> --not --remotes` for a new branch. A deleted ref is skipped.
   `git scrub push [<tip> <rev-list args>]` runs the same by hand. Figures (E5) are
   checked at commit only: at push, HEAD already holds the figures being pushed.
@@ -365,8 +367,8 @@ commit the push sends is checked again.*
   each hook leaves a mark under the repo's git directory when it passes, and
   `post-commit` records the new commit only when both marks are for its tree and the
   current config. At push
-  (C2.1) the tip's tree is always checked; a new commit is skipped only when it is on
-  that list under the config's current hash. Commits made with `--no-verify`, by a rebase
+  (C2.1) a new commit's lines and message are skipped only when it is on that list under
+  the config's current hash. Commits made with `--no-verify`, by a rebase
   or a merge, or in a clone without the hooks, are not on it and are checked.
 - **C8.7 Enabled per repo, chained to the repo's own hooks.** `git scrub enable` changes
   only the repo it runs in, never the global git config. Where the repo already has a
@@ -448,6 +450,10 @@ text lines (669 findings), it took 265 s; trying a clause only where a typed cla
 first 5 words begin took `wording.awk` from 85 s to 22.5 s and `tree` to 216 s. One search
 for every paraphrase key's longest word, against one per key: 175 s. One lookup pass for
 the prompts with no paraphrase key: 135 s, all with the same 669 findings.
+
+A push reads only its new commits (C2.1), so this budget is for `git scrub tree` alone: on
+a copy of claude-skills (284 files, 35,156 text lines), with wording on, a push takes 1 s
+when every new commit passed its hooks, where `tree` there takes 93 s.
 
 ### E11. Both existing checkers are replaced with nothing lost
 

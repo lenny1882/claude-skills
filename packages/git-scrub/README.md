@@ -104,7 +104,7 @@ checks exit 2 (the log unreadable) or stop ruling Claude's text out (more
 The model sweep sends lines that pass stage 1, in batches of 400, to `claude -p` on
 stdin, with no tools, never a value from the lists. A batch it cannot answer blocks
 with exit 2. At push, commits that passed their hooks under the current config are not
-swept or checked again; the pushed tree always is.
+swept or checked again. A push reads only its new commits, never the pushed tree.
 
 The write hook is a `PostToolUse` hook on every tool; it keeps the session's last-seen
 uncommitted lines in `.git/scrub/` and checks only new ones. `rewrite` pipes `git
