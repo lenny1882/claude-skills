@@ -443,7 +443,9 @@ same 672 findings. Built that way (`labelfn.awk`), over the same repo rebuilt at
 text lines: `tree` 15.2 s with wording off, against 168.6 s before, and 705 s with it on. With wording on, step 2 parsing its matched transcript lines once
 took that to 481 s; escaping transcript strings with jq's `@tsv` rather than `gsub`, whose
 time grows much faster than the string in jq 1.6, and `lookup.awk` building clauses only
-for a paraphrase key, to 287 s, all with the same 877 findings.
+for a paraphrase key, to 287 s, all with the same 877 findings. Rebuilt again at 308,572
+text lines (669 findings), it took 265 s; trying a clause only where a typed clause's
+first 5 words begin took `wording.awk` from 85 s to 22.5 s and `tree` to 216 s.
 
 ### E11. Both existing checkers are replaced with nothing lost
 

@@ -23,7 +23,8 @@ ARGIND == 2 {
   m = clauses(text, cl)
   for (k = 1; k <= m; k++) {
     c = norm(cl[k]); if (c == "") continue
-    if (split(c, x, " ") >= floor && !(c in cls)) cls[c] = np
+    nc = split(c, x, " ")
+    if (nc >= floor && !(c in cls)) { cls[c] = np; clen[nc] = 1; cpre[join(x, 1, floor)] = 1 }
     s = content(cl[k]); if (s != "" && !(s in sentseen)) { sentseen[s] = 1; sraw[++ns] = s; spid[ns] = np }
   }
   next
@@ -78,17 +79,23 @@ function content(text,   w, n, i, x, seen, out, m, s) {
 
 function emit(where, cat, detail, kind, key, pid) { printf "%s\t%s\t%s\t%s\t%s\t%d\n", where, cat, detail, kind, key, pid }
 
-function check(where, text,   w, n, i, r, len, c, m, cl, k, cw, x, nx, cnt, j, list, ids, shared, done) {
+function check(where, text,   w, n, i, r, len, c, m, cl, k, cw, x, nx, cnt, j, list, ids, shared, done, at, np2, q) {
   n = words(text, w); delete done
   for (i = 1; i + runlen - 1 <= n; i++) {
     r = join(w, i, runlen)
     if ((r in runs) && !(("run" r) in done)) { done["run" r] = 1; emit(where, "wording", r, "run", r, runs[r]) }
   }
-  for (len = floor; len <= n && len <= 40; len++)
-    for (i = 1; i + len - 1 <= n; i++) {
+  # A clause can start only where its first floor words do, and has a length some
+  # clause has; the same order as trying every span.
+  np2 = 0
+  for (i = 1; i + floor - 1 <= n; i++) if (join(w, i, floor) in cpre) at[++np2] = i
+  for (len = floor; np2 && len <= n && len <= 40; len++) {
+    if (!(len in clen)) continue
+    for (q = 1; q <= np2 && (i = at[q]) + len - 1 <= n; q++) {
       c = join(w, i, len)
       if ((c in cls) && !(("cl" c) in done)) { done["cl" c] = 1; emit(where, "wording", c, "clause", c, cls[c]) }
     }
+  }
   m = clauses(text, cl)
   for (k = 1; k <= m; k++) {
     nx = split(content(cl[k]), x, " "); delete cw; cwn = 0

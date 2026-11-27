@@ -491,8 +491,15 @@ paraphrase keys read them. The suite: 202 passed, 1 failed, the live sweep check
 same findings: planted cases `staged` 44 and `tree` 43; the 2,000-file repo's `tree` with
 wording on 877. That `tree` takes 287 s, against 481 s.
 
-Next: split the 287 s again; `wording.awk` took 80.5 s and step 1 54 s before these
-changes.
+The clause check, **DONE 27 Nov 2026**. Over the same repo rebuilt again (308,572 text
+lines; `tree` 265 s with wording on, 669 findings), split again: `wording.awk` 85 s, step
+2's paraphrase search 59 s, step 2's loop per prompt 46 s, jq over paraphrase lines 26 s,
+step 1 21 s, stage 1 12 s. Nearly all of `wording.awk`'s time was the clause check, which
+joined every span of 5 to 40 words at every word position: on a tenth of the lines,
+988,000 joins for 5 clause hits. It now tries a span only where its first 5 words begin a
+typed clause, and only at lengths a typed clause has, in the same order. The candidates
+are byte for byte the same on that repo (2,217) and on the planted cases, with HEAD's text
+and without. `wording.awk` takes 22.5 s, against 85 s; `tree` 216 s.
 
 The 2,000-file repo is built by copying the tracked files of claude-skills, maestro-drive
 and claude-impersonator (`git archive HEAD`, files under 200 KB, no images or archives)
