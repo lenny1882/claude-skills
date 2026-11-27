@@ -507,6 +507,24 @@ key's longest word at once, and each key keeps the lines holding all of its word
 still reads only lines holding every word; P1's checks pass. The same 669 findings; `tree`
 175 s.
 
+One lookup for the prompts with no paraphrase key, **DONE 27 Nov 2026**. Of step 2's loop,
+`lookup.awk` took 28.2 s over the 49 prompts and re-reading `runstrings` for each 13.6 s.
+`lib/lookup-runs.awk` reads `runstrings` once for the 37 prompts with no paraphrase key
+left, and tests each prompt's keys against the same text `lookup.awk` built from its
+strings, in the same order; it rules out the same 6 keys. The 12 prompts with a paraphrase
+key keep the per-prompt path, since their run keys are tested against the paraphrase lines
+too. `test/wording-tests.sh` adds O3: a typed run held only in another session, in a
+prompt with no paraphrase key, is not reported and that transcript is read; with the
+transcript removed it is reported. With `lookup-runs.awk` made to hold nothing, O3's first
+check fails. The suite: 205 passed, 1 failed, the live sweep checks. The same 669
+findings; `tree` 135 s: the paraphrase keys' filter and jq 31 s, `wording.awk` 24 s, step
+1 20 s, stage 1 13 s, the run-key filter for the paraphrase prompts 12 s,
+`lookup-runs.awk` 10 s.
+
+Next: the paraphrase keys' filter lowercases all 423 MB of matched lines once per key, 33
+s of the 38 s that part takes measured on its own; one filter for every key at once would
+remove most of it.
+
 The 2,000-file repo is built by copying the tracked files of claude-skills, maestro-drive
 and claude-impersonator (`git archive HEAD`, files under 200 KB, no images or archives)
 into `copy0/`, `copy1/` and onwards until there are 2,000.

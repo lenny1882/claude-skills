@@ -39,16 +39,20 @@ mv "$CLAUDE_DIR/history.off" "$CLAUDE_DIR/history.jsonl"
 /usr/bin/grep -q -i -E 'lamps|flicker|calendar|porter' "$cfg/log" && no "the log holds none of my wording (E9)" "wording found in the log" || ok "the log holds none of my wording (E9)"
 
 echo "C3.2's order: the prompt's own session first"
-# O1 is held in its own session and in another; O2 only in another. A fake jq records
-# which transcripts produced() reads.
+# O1 is held in its own session and in another; O2 only in another. O3 is a run from a
+# longer typed sentence, quoted in a line too unlike it to be a paraphrase, so its prompt
+# leaves only a run key; held only in another session. A fake jq records which
+# transcripts produced() reads.
 cp "$CLAUDE_DIR/history.jsonl" "$TMP/history.keep"; cp "$CLAUDE_DIR/projects/-work-proj-a/s-a1.jsonl" "$TMP/s-a1.keep"
 o1='The ferry timetable changes twice before the winter storms arrive.'
 o2='Every lantern on the quay is checked against the harbour ledger.'
-for t in "$o1" "$o2"; do
+o3='The night porter counts every barrel in the cellar before the tide turns at midnight.'
+o3line='Logbook: every barrel in the cellar before the inspection, said the clerk with orange gloves and brass buttons.'
+for t in "$o1" "$o2" "$o3"; do
   jq -nc --arg t "$t" '{type: "assistant", isSidechain: false, sessionId: "s-b1", timestamp: "2026-01-06T09:00:00.000Z", message: {role: "assistant", content: [{type: "text", text: $t}]}}'
 done > "$TMP/s-b1.jsonl"; mkdir -p "$CLAUDE_DIR/projects/-work-proj-b"; mv "$TMP/s-b1.jsonl" "$CLAUDE_DIR/projects/-work-proj-b/s-b1.jsonl"
 jq -nc --arg t "$o1" '{type: "assistant", isSidechain: false, sessionId: "s-a1", timestamp: "2026-01-06T08:59:00.000Z", message: {role: "assistant", content: [{type: "text", text: $t}]}}' >> "$CLAUDE_DIR/projects/-work-proj-a/s-a1.jsonl"
-n=0; for t in "$o1" "$o2"; do n=$((n + 1))
+n=0; for t in "$o1" "$o2" "$o3"; do n=$((n + 1))
   jq -nc --arg t "yes, ${t,}" --argjson ts $((1767690000000 + n * 60000)) '{display: $t, pastedContents: {}, project: "/work/proj-a", sessionId: "s-a1", timestamp: $ts}' >> "$CLAUDE_DIR/history.jsonl"
 done
 mkdir -p "$TMP/jqbin"; realjq=$(command -v jq)
@@ -69,6 +73,12 @@ read_s s-b1 && no "O1 (C3.2): no other session's transcript is read" "s-b1.jsonl
 got=$(o O2 "$o2")
 [ -z "$got" ] && ok "O2 (C3.2): held only in another session, so not reported" || no "O2 (C3.2): not reported" "got: $got"
 read_s s-b1 && ok "O2 (C3.2): the other session's transcript is read" || no "O2 (C3.2): the other session's transcript is read" "s-b1.jsonl not read"
+got=$(o O3 "$o3line")
+[ -z "$got" ] && ok "O3 (C3.2): a run held only in another session, so not reported" || no "O3 (C3.2): not reported" "got: $got"
+read_s s-b1 && ok "O3 (C3.2): the other session's transcript is read" || no "O3 (C3.2): the other session's transcript is read" "s-b1.jsonl not read"
+rm "$CLAUDE_DIR/projects/-work-proj-b/s-b1.jsonl"
+got=$(o O3 "$o3line")
+[ "$got" = "wording" ] && ok "O3 (C3.6): with no transcript holding it, reported as wording" || no "O3 (C3.6): reported as wording" "got: ${got:-pass}"
 git -C "$R" rm -q --cached -r --ignore-unmatch cases
 mv "$TMP/history.keep" "$CLAUDE_DIR/history.jsonl"; mv "$TMP/s-a1.keep" "$CLAUDE_DIR/projects/-work-proj-a/s-a1.jsonl"; rm -rf "$CLAUDE_DIR/projects/-work-proj-b"
 

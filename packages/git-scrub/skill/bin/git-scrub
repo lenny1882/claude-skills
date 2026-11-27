@@ -266,7 +266,19 @@ wording() { # LINES
     | sort -u > "$work/parawords"
   : > "$work/paralines"
   [ -s "$work/parawords" ] && transcript_lines "$work/paralines" -F -f "$work/parawords"
-  for pid in $(cut -f1 "$work/left.all" | sort -un); do
+  # Prompts with no paraphrase key left: one read of the matched strings for them all.
+  gawk -F'\t' '$2 == "para" { print $1 }' "$work/left.all" | sort -u > "$work/parapids"
+  gawk -F'\t' 'ARGIND == 1 { skip[$1] = 1; next } !($1 in skip)' "$work/parapids" "$work/left.all" > "$work/runleft"
+  if [ -s "$work/runleft" ]; then
+    : > "$work/jobs"; : > "$work/own"
+    for pid in $(cut -f1 "$work/runleft" | sort -un); do
+      IFS=$'\t' read -r ms _ < <(sed -n "${pid}p" "$work/prompts")
+      gawk -F'\t' -v p="$pid" -v ms="$ms" '$1 == p { print p "\t" ms "\t" $2 "\t" $3 }' "$work/runleft" >> "$work/jobs"
+      gawk -v p="$pid" '{ print p "\t" $0 }' "$work/own.$pid" >> "$work/own"
+    done
+    gawk -f "$LIB/lookup-runs.awk" "$work/jobs" "$work/own" "$work/runstrings" >> "$work/ruled"
+  fi
+  for pid in $(cat "$work/parapids"); do
     IFS=$'\t' read -r ms session _ < <(sed -n "${pid}p" "$work/prompts")
     gawk -F'\t' -v p="$pid" '$1 == p { print $2 "\t" $3 }' "$work/left.all" > "$work/left"
     { gawk -F'\t' '$1 != "para"' "$work/left" | /usr/bin/grep -q . \
