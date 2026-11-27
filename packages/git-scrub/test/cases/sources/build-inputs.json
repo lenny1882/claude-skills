@@ -1,0 +1,28 @@
+{
+  "_comment": "Invented values for the planted-case set. The commit checker reads this as build-inputs.json; git-scrub reads it as a JSON source (sources.tsv).",
+  "slack_export": "@EXPORT@",
+  "repos": [
+    "zarnok",
+    "zarnok-tide",
+    "vell_quor",
+    "plimset.io"
+  ],
+  "contacts": [
+    "orla.vintner@corvane.example"
+  ],
+  "short": [
+    "qix"
+  ],
+  "long": [
+    "tarnbecktarnbecktarnbecktarnbecktarnbecktarnbecktarnbecktarnbecktarnbecktarnbeckx"
+  ],
+  "links": [
+    "https://wiki.corvane.example/start"
+  ],
+  "note": "trevalloc",
+  "anonymiser_additions_candidates": {
+    "names": [
+      "Marigold"
+    ]
+  }
+}

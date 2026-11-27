@@ -1,0 +1,10 @@
+# JSON sources (C1.2): file<TAB>kind<TAB>jq expression. kind is whole, people or always.
+build-inputs.json	whole	[paths(strings) as $p | select(all($p[]; type != "string" or ((startswith("_") | not) and (IN("note", "status", "kind", "audience") | not)))) | getpath($p)] | .[]
+build-inputs.json	always	.anonymiser_additions_candidates.names[]?
+slack/users.json	whole	.[].id // empty
+slack/users.json	people	.[] | (.name, .real_name, .profile.real_name, .profile.display_name, .profile.first_name, .profile.last_name) | strings
+slack/channels.json	whole	.[] | (.id, .name) | strings
+slack/groups.json	whole	.[] | (.id, .name) | strings
+slack/mpims.json	whole	.[] | (.id, .name) | strings
+slack/dms.json	whole	.[] | (.id, .name) | strings
+build-inputs.json	always	.slack_export // empty

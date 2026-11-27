@@ -1,0 +1,35 @@
+[
+  {
+    "id": "U0TSTQV001",
+    "name": "qvarga",
+    "real_name": "Quillon Varga",
+    "profile": {
+      "real_name": "Quillon Varga",
+      "display_name": "Quill",
+      "first_name": "Quillon",
+      "last_name": "Varga"
+    }
+  },
+  {
+    "id": "U0TSTJF002",
+    "name": "jferreira",
+    "real_name": "José Ferreira",
+    "profile": {
+      "real_name": "José Ferreira",
+      "display_name": "",
+      "first_name": "José",
+      "last_name": "Ferreira"
+    }
+  },
+  {
+    "id": "U0TSTAN003",
+    "name": "anelle",
+    "real_name": "Abel Nkemdi",
+    "profile": {
+      "real_name": "Abel Nkemdi",
+      "display_name": "",
+      "first_name": "Abel",
+      "last_name": "Nkemdi"
+    }
+  }
+]

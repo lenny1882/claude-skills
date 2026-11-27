@@ -1,0 +1,2 @@
+# Allowlist (C1.5): never flagged by stage 1. Invented.
+zephlin-core

@@ -1,0 +1,4 @@
+# Repo labels (C1.4): name<TAB>case<TAB>ERE. Invented owner name, surname and export path.
+the owner's name	sensitive	\bTobin\b
+the owner's surname	sensitive	\bVarnley\b
+Slack export path	sensitive	/srv/exports/slackarchive|slackarchive/(old|new)\b

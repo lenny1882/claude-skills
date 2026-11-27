@@ -1,0 +1,15 @@
+# Built-in labels (C1.4): name<TAB>when<TAB>gawk ERE. Case-sensitive. when is "all" or
+# "public" (only in a repo marked public, C4.4). \y is a word boundary. A Slack id must
+# also hold a digit after its first character, which stage1.awk checks.
+redaction label	all	\[[^]]{0,40}\yremoved\]
+session ordinal	all	\y(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|later|earlier|previous) session\y
+(R) recommendation marker	all	\(R\)
+Claude session link or id	all	claude\.ai/code/session_|\ysession_[0-9A-Za-z]{10,}
+session or object uuid	all	\y[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\y
+Claude scratch path	all	/tmp/claude-[0-9]+
+Atlassian domain	all	\.atlassian\.net
+email address	all	[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[a-z]{2,}
+Slack id	all	\y[UWDCG][0-9A-Z]{8,11}\y
+dated attribution	public	\(([A-Z][a-z]+|the owner),? [0-9]{1,2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.? 20[0-9][0-9]
+answered-question log	public	^[[:space:]]*([0-9]+[a-z]?\.[[:space:]]+)?Answered\y
+release history	public	\y[Rr]eleased (as|in) v?[0-9]+\.[0-9]+
