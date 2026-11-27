@@ -501,6 +501,12 @@ typed clause, and only at lengths a typed clause has, in the same order. The can
 are byte for byte the same on that repo (2,217) and on the planted cases, with HEAD's text
 and without. `wording.awk` takes 22.5 s, against 85 s; `tree` 216 s.
 
+The paraphrase search, **DONE 27 Nov 2026**. Each of the 14 paraphrase keys ran its own
+`grep -F` over every transcript, about 4.2 s each. One `grep -F -f` now searches for every
+key's longest word at once, and each key keeps the lines holding all of its words, so jq
+still reads only lines holding every word; P1's checks pass. The same 669 findings; `tree`
+175 s.
+
 The 2,000-file repo is built by copying the tracked files of claude-skills, maestro-drive
 and claude-impersonator (`git archive HEAD`, files under 200 KB, no images or archives)
 into `copy0/`, `copy1/` and onwards until there are 2,000.

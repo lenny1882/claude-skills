@@ -445,7 +445,8 @@ took that to 481 s; escaping transcript strings with jq's `@tsv` rather than `gs
 time grows much faster than the string in jq 1.6, and `lookup.awk` building clauses only
 for a paraphrase key, to 287 s, all with the same 877 findings. Rebuilt again at 308,572
 text lines (669 findings), it took 265 s; trying a clause only where a typed clause's
-first 5 words begin took `wording.awk` from 85 s to 22.5 s and `tree` to 216 s.
+first 5 words begin took `wording.awk` from 85 s to 22.5 s and `tree` to 216 s. One search
+for every paraphrase key's longest word, against one per key: 175 s.
 
 ### E11. Both existing checkers are replaced with nothing lost
 

@@ -259,19 +259,22 @@ wording() { # LINES
   : > "$work/runlines"
   [ -s "$work/pats" ] && transcript_lines "$work/runlines" -E -f "$work/pats"
   produced_tagged < "$work/runlines" > "$work/runstrings"
+  # A paraphrase is held only by one clause holding every one of its words, so a line
+  # must hold them all: one search, for every paraphrase key's longest word at once,
+  # then each key keeps the lines holding all of its words.
+  cut -f2,3 "$work/left.all" | gawk -F'\t' '$1 == "para" { n = split($2, x, " "); b = ""; for (i = 1; i <= n; i++) if (length(x[i]) > length(b)) b = x[i]; if (b != "") print b }' \
+    | sort -u > "$work/parawords"
+  : > "$work/paralines"
+  [ -s "$work/parawords" ] && transcript_lines "$work/paralines" -F -f "$work/parawords"
   for pid in $(cut -f1 "$work/left.all" | sort -un); do
     IFS=$'\t' read -r ms session _ < <(sed -n "${pid}p" "$work/prompts")
     gawk -F'\t' -v p="$pid" '$1 == p { print $2 "\t" $3 }' "$work/left.all" > "$work/left"
     { gawk -F'\t' '$1 != "para"' "$work/left" | /usr/bin/grep -q . \
         && gawk -F'\t' -v ms="$ms" 'ARGIND == 1 { own[$0] = 1; next } !($1 in own) && $2 + 0 < ms + 0 { print substr($0, length($1) + length($2) + 3) }' "$work/own.$pid" "$work/runstrings"
-      # A paraphrase is held only by one clause holding every one of its words, so a
-      # line must hold them all: the longest word searched for, then the rest kept to.
       while IFS=$'\t' read -r k key; do
         [ "$k" = para ] || continue
-        mapfile -t kw < <(tr ' ' '\n' <<< "$key" | gawk 'NF { print length, $0 }' | sort -rn | cut -d' ' -f2)
-        [ ${#kw[@]} -gt 0 ] || continue
-        transcript_lines "$work/paralines" -F -e "${kw[0]}"
-        LC_ALL=C gawk -v w="${kw[*]:1}" 'BEGIN { n = split(w, x, " ") } { t = tolower(substr($0, index($0, "\t") + 1)); for (i = 1; i <= n; i++) if (!index(t, x[i])) next; print }' "$work/paralines" \
+        [ -n "${key// /}" ] || continue
+        LC_ALL=C gawk -v w="$key" 'BEGIN { n = split(w, x, " ") } { t = tolower(substr($0, index($0, "\t") + 1)); for (i = 1; i <= n; i++) if (!index(t, x[i])) next; print }' "$work/paralines" \
           | gawk -F'\t' 'ARGIND == 1 { own[$0] = 1; next } !($1 in own) { print substr($0, length($1) + 2) }' "$work/own.$pid" - \
           | produced "$ms"
       done < "$work/left"; } \
